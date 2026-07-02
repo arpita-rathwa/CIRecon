@@ -1,12 +1,18 @@
 name: CI
-on: [push]
+
+on:
+  push:
+    branches: [main]
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - run: echo "building"
+
   deploy:
     runs-on: ubuntu-latest
-    needs: [nonexistent-job]
+    needs: [nonexistent_job]    # ← deploy depends on a job that doesn't exist
     steps:
       - run: echo "deploying"
+
