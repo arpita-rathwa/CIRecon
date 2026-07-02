@@ -53,24 +53,33 @@ def check_deprecated_action_versions(path: str, content: str) -> list[Issue]:
     if not parsed or "jobs" not in parsed:
         return issues
 
-    for job_name, job in parsed["jobs"].items():
-        steps = job.get("steps", [])
+    jobs = parsed.get("jobs")
+    if not isinstance(jobs, dict):
+        return issues
+
+    for job_name, job in jobs.items():
+        if not isinstance(job, dict):
+            continue
+        steps = job.get("steps") or []
         for step_index, step in enumerate(steps):
-            uses = step.get("uses", "")
-            if not uses:
+            if not isinstance(step, dict):
                 continue
-
-            # split "actions/checkout@v2" into "actions/checkout" and "v2"
-            if "@" not in uses:
-                continue
-
             action, version = uses.rsplit("@", 1)
 
             if action in DEPRECATED_ACTIONS:
                 latest = DEPRECATED_ACTIONS[action]
-                if version != latest:
+                is_sha_pin = bool(re.fullmatch(r"[0-9a-f]{40}", version))
+                major_version = version.split(".", 1)[0]
+                if not is_sha_pin and major_version != latest:
                     issues.append(Issue(
                         id="RULE_DEPRECATED_ACTION",
+                        severity=Severity.MEDIUM,
+                        message=f"'{action}@{version}' is outdated. Latest is '@{latest}'.",
+                        location=Location(file=path, line=None, column=None),
+                        auto_fixable=True,
+                        confidence=1.0,
+                        suggested_fix=f"{action}@{latest}"
+                    ))                        id="RULE_DEPRECATED_ACTION",
                         severity=Severity.MEDIUM,
                         message=f"'{action}@{version}' is outdated. Latest is '@{latest}'.",
                         location=Location(file=path, line=None, column=None),
