@@ -1,1 +1,22 @@
-# CIRecon CI workflow - coming soon
+name: CI
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - run: pip install pyyaml pytest
+      - run: pytest tests/ -v
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: [nonexistent_job]
+    steps:
+      - run: echo "deploying"
