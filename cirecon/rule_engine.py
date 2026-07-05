@@ -1,7 +1,8 @@
-from dataclasses import dataclass
-from typing import Optional
-from enum import Enum
 import re
+from dataclasses import dataclass
+from enum import Enum
+from typing import Optional
+
 import yaml
 
 
@@ -249,8 +250,12 @@ def check_pull_request_target_unsafe(path: str, content: str) -> list[Issue]:
                 issues.append(Issue(
                     id="RULE_PULL_REQUEST_TARGET_UNSAFE",
                     severity=Severity.CRITICAL,
-                    message=f"Job '{job_name}' uses pull_request_target with checkout of untrusted PR code. "
-                            "This is a known RCE vector — pull_request_target gives write access to the repo.",
+                    message=(
+                        f"Job '{job_name}' uses pull_request_target "
+                        "with checkout of untrusted PR code. "
+                        "This is a known RCE vector — "
+                        "pull_request_target gives write access to the repo."
+                    ),
                     location=Location(file=path, line=None, column=None),
                     auto_fixable=False,
                     confidence=0.9,
@@ -277,8 +282,11 @@ def check_overly_broad_permissions(path: str, content: str) -> list[Issue]:
             issues.append(Issue(
                 id="RULE_OVERLY_BROAD_PERMISSIONS",
                 severity=Severity.HIGH,
-                message="Top-level permissions are set to 'write-all' or 'write', which gives broad access to the entire repo. "
-                        "Restrict to only the scopes needed (e.g. contents: read).",
+                message=(
+                    "Top-level permissions are set to 'write-all' or 'write', "
+                    "which gives broad access to the entire repo. "
+                    "Restrict to only the scopes needed (e.g. contents: read)."
+                ),
                 location=Location(file=path, line=None, column=None),
                 auto_fixable=False,
                 confidence=1.0,
@@ -291,8 +299,12 @@ def check_overly_broad_permissions(path: str, content: str) -> list[Issue]:
             issues.append(Issue(
                 id="RULE_OVERLY_BROAD_PERMISSIONS",
                 severity=Severity.HIGH,
-                message=f"Permissions grant write access to {len(write_scopes)} scopes ({', '.join(write_scopes)}). "
-                        "Broad permissions increase the blast radius if the workflow is compromised.",
+                message=(
+                    f"Permissions grant write access to {len(write_scopes)} "
+                    f"scopes ({', '.join(write_scopes)}). "
+                    "Broad permissions increase the blast radius "
+                    "if the workflow is compromised."
+                ),
                 location=Location(file=path, line=None, column=None),
                 auto_fixable=False,
                 confidence=1.0,
@@ -312,7 +324,10 @@ def check_overly_broad_permissions(path: str, content: str) -> list[Issue]:
                 issues.append(Issue(
                     id="RULE_OVERLY_BROAD_PERMISSIONS",
                     severity=Severity.HIGH,
-                    message=f"Job '{job_name}' sets permissions to '{job_perms}', which is overly broad.",
+                    message=(
+                        f"Job '{job_name}' sets permissions to "
+                        f"'{job_perms}', which is overly broad."
+                    ),
                     location=Location(file=path, line=None, column=None),
                     auto_fixable=False,
                     confidence=1.0,

@@ -1,4 +1,5 @@
 import re
+
 from cirecon.rule_engine import Issue
 
 

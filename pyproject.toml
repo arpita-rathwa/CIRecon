@@ -4,9 +4,41 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cirecon"
-version = "0.1.0"
-requires-python = ">=3.10"
-dependencies = ["pyyaml"]
+version = "2.0.0"
+description = "Agentic CI/CD workflow repair — detects and auto-fixes GitHub Actions errors"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "arpita-rathwa" }]
+license = { text = "MIT" }
 
-[tool.setuptools.packages.find]
-include = ["cirecon*"]
+dependencies = [
+    "PyYAML>=6.0",
+    "jsonschema>=4.20",
+    "PyGithub>=2.0",
+    "requests>=2.31",
+    "rich>=13.0",
+    "pydantic>=2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "ruff>=0.5",
+    "mypy>=1.10",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+
+[tool.mypy]
+strict = false
+ignore_missing_imports = true
+python_version = "3.11"
+
+[tool.coverage.report]
+fail_under = 80

@@ -1,5 +1,6 @@
 from pathlib import Path
 
+
 def discover_workflow_files(repo_path: str) -> list[tuple[str, str]]:
     p = Path(repo_path)
     yml_files = list(p.glob(".github/workflows/*.yml"))

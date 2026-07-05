@@ -1,7 +1,6 @@
 import os
-import sys
 import tempfile
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -42,7 +41,9 @@ def test_run_no_issues_found(mock_checks, mock_discover):
 @patch("cirecon.main.apply_fix")
 @patch("cirecon.main.validate_all")
 def test_run_auto_fix_applied(mock_validate, mock_apply, mock_checks, mock_discover):
-    mock_discover.return_value = [("test.yml", "name: CI\njobs:\n  build:\n    steps:\n      - uses: actions/checkout@v2\n")]
+    mock_discover.return_value = [
+        ("test.yml", "name: CI\njobs:\n  build:\n    steps:\n      - uses: actions/checkout@v2\n"),
+    ]
     mock_checks.return_value = [
         Issue(
             id="RULE_DEPRECATED_ACTION",
@@ -54,7 +55,9 @@ def test_run_auto_fix_applied(mock_validate, mock_apply, mock_checks, mock_disco
             suggested_fix="actions/checkout@v4",
         )
     ]
-    mock_apply.return_value = "name: CI\njobs:\n  build:\n    steps:\n      - uses: actions/checkout@v4\n"
+    mock_apply.return_value = (
+        "name: CI\njobs:\n  build:\n    steps:\n      - uses: actions/checkout@v4\n"
+    )
 
     valid_result = MagicMock()
     valid_result.passed = True
@@ -109,9 +112,13 @@ def test_write_job_summary_with_issues():
         with patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": summary_path}):
             files_scanned = [("a.yml", "content"), ("b.yml", "content")]
             issues_found = [
-                Issue(id="RULE_A", severity=Severity.HIGH, message="Missing permissions",
-                      location=Location(file="a.yml", line=None, column=None),
-                      auto_fixable=True, confidence=1.0, suggested_fix="permissions:\n  contents: read"),
+                Issue(
+                    id="RULE_A", severity=Severity.HIGH,
+                    message="Missing permissions",
+                    location=Location(file="a.yml", line=None, column=None),
+                    auto_fixable=True, confidence=1.0,
+                    suggested_fix="permissions:\n  contents: read",
+                ),
                 Issue(id="RULE_B", severity=Severity.CRITICAL, message="Secret in run",
                       location=Location(file="b.yml", line=None, column=None),
                       auto_fixable=False, confidence=0.95, suggested_fix=None),

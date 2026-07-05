@@ -53,7 +53,10 @@ def test_read_workflow_file_not_found():
 
 @patch("cirecon.validator._SCHEMA_CACHE", MINIMAL_SCHEMA)
 def test_validate_yaml_schema_tool_passes():
-    content = "name: CI\n'on': [push]\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hello\n"
+    content = (
+        "name: CI\n'on': [push]\n"
+        "jobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hello\n"
+    )
     result = validate_yaml_schema_tool(content)
     assert result.success is True
     assert result.data["passed"] is True
@@ -68,7 +71,11 @@ def test_validate_yaml_schema_tool_fails():
 
 
 def test_run_rule_checks_tool_finds_issues():
-    content = "name: CI\non: [push]\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v2\n"
+    content = (
+        "name: CI\non: [push]\n"
+        "jobs:\n  build:\n    runs-on: ubuntu-latest\n"
+        "    steps:\n      - uses: actions/checkout@v2\n"
+    )
     result = run_rule_checks_tool("test.yml", content)
     assert result.success is True
     assert result.data["count"] >= 1

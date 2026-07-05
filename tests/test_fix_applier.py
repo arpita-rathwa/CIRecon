@@ -1,5 +1,5 @@
-from cirecon.rule_engine import Issue, Location, Severity
 from cirecon.fix_applier import apply_fix
+from cirecon.rule_engine import Issue, Location, Severity
 from cirecon.validator import validate_all
 
 
@@ -101,3 +101,27 @@ jobs:
     result = apply_fix(content, issue)
     validation = validate_all("test.yml", result, [issue])
     assert validation.passed is True, f"Validation failed: {validation.errors}"
+
+
+def test_fixes_deprecated_action_regex_fallback():
+    content = """\
+name: CI
+on: [push]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+"""
+    issue = Issue(
+        id="RULE_DEPRECATED_ACTION",
+        severity=Severity.MEDIUM,
+        message="Unrecognized deprecated action reference",
+        location=Location(file="test.yml", line=None, column=None),
+        auto_fixable=True,
+        confidence=1.0,
+        suggested_fix="actions/checkout@v4",
+    )
+    result = apply_fix(content, issue)
+    assert "actions/checkout@v4" in result
+    assert "actions/checkout@v2" not in result

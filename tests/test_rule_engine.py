@@ -1,10 +1,10 @@
 from cirecon.rule_engine import (
+    check_broken_needs_dependencies,
     check_deprecated_action_versions,
     check_missing_permissions,
-    check_broken_needs_dependencies,
-    check_secret_in_run_command,
-    check_pull_request_target_unsafe,
     check_overly_broad_permissions,
+    check_pull_request_target_unsafe,
+    check_secret_in_run_command,
     check_unpinned_third_party_action,
     run_all_checks,
 )
@@ -199,3 +199,52 @@ jobs:
 """
     issues = check_unpinned_third_party_action("clean.yml", content)
     assert len(issues) == 0
+
+
+def test_checks_return_empty_on_bad_yaml():
+    bad_yaml = "name: CI\non: [push\njobs:\n  build:\n    runs-on: ubuntu-latest"
+    for check in [
+        check_deprecated_action_versions,
+        check_missing_permissions,
+        check_broken_needs_dependencies,
+        check_secret_in_run_command,
+        check_pull_request_target_unsafe,
+        check_overly_broad_permissions,
+        check_unpinned_third_party_action,
+    ]:
+        assert check("f.yml", bad_yaml) == []
+
+
+def test_checks_return_empty_on_null_yaml():
+    for check in [
+        check_deprecated_action_versions,
+        check_missing_permissions,
+        check_pull_request_target_unsafe,
+        check_overly_broad_permissions,
+    ]:
+        assert check("f.yml", "null") == []
+
+
+def test_deprecated_action_skips_non_dict_jobs():
+    content = "name: CI\non: [push]\njobs: string_value\n"
+    issues = check_deprecated_action_versions("f.yml", content)
+    assert issues == []
+
+
+def test_secret_in_run_no_jobs():
+    content = "name: CI\non: [push]\n"
+    issues = check_secret_in_run_command("f.yml", content)
+    assert issues == []
+
+
+def test_pull_request_target_no_on_block():
+    content = "name: CI\njobs:\n  build:\n    runs-on: ubuntu-latest\n"
+    issues = check_pull_request_target_unsafe("f.yml", content)
+    assert issues == []
+
+
+def test_overly_broad_permissions_non_dict_jobs():
+    content = "name: CI\non: [push]\npermissions: write-all\njobs: string\n"
+    issues = check_overly_broad_permissions("f.yml", content)
+    assert len(issues) == 1
+    assert issues[0].id == "RULE_OVERLY_BROAD_PERMISSIONS"

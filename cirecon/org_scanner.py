@@ -68,7 +68,7 @@ def scan_repos(repo_list: list[str], github_token: str) -> list[RepoReport]:
                 health_score=0,
                 scanned_at=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
             ))
-        except Exception as e:
+        except Exception:
             reports.append(RepoReport(
                 repo=repo, files_scanned=0, issues=[],
                 health_score=0,

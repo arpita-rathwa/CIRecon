@@ -58,7 +58,8 @@ def generate_dashboard_markdown(reports: list[RepoReport]) -> str:
         for issue in r.issues:
             fix = f"`{issue.suggested_fix}`" if issue.suggested_fix else "Manual fix required"
             lines.append(
-                f"| `{issue.location.file}` | `{issue.id}` | {issue.severity.value.upper()} | {fix} |"
+                f"| `{issue.location.file}` | `{issue.id}` | "
+                f"{issue.severity.value.upper()} | {fix} |"
             )
         lines.append("")
 

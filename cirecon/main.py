@@ -7,7 +7,6 @@ from cirecon.fix_applier import apply_fix
 from cirecon.input_layer import discover_workflow_files
 from cirecon.memory import (
     FixRecord,
-    MemoryContext,
     load_memory,
     record_fix,
     save_memory,
@@ -34,7 +33,12 @@ def _issue_to_dict(issue: Issue) -> dict:
     }
 
 
-def write_job_summary(files_scanned: list, issues_found: list[Issue], issues_fixed: list[dict], unresolved: list[dict]) -> None:
+def write_job_summary(
+    files_scanned: list,
+    issues_found: list[Issue],
+    issues_fixed: list[dict],
+    unresolved: list[dict],
+) -> None:
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
     if not summary_path:
         return
@@ -53,13 +57,14 @@ def write_job_summary(files_scanned: list, issues_found: list[Issue], issues_fix
             for issue in issues_found:
                 fixable = '✅' if issue.auto_fixable else '❌'
                 fix = f'`{issue.suggested_fix}`' if issue.suggested_fix else 'Manual fix required'
-                f.write(f"| `{issue.location.file}` | `{issue.id}` | {issue.severity.value.upper()} | {fixable} | {fix} |\n")
+                f.write(f"| `{issue.location.file}` | `{issue.id}` | "
+                        f"{issue.severity.value.upper()} | {fixable} | {fix} |\n")
         else:
             f.write("### ✅ All workflows are clean\n\n")
             f.write("No issues detected in any workflow file.\n")
 
 
-def run():
+def run() -> None:
     anthropic_api_key = os.getenv("ANTHROPIC_API_KEY", "")
     github_token = os.getenv("GITHUB_TOKEN", "")
     repo = os.getenv("GITHUB_REPOSITORY", "")
@@ -152,7 +157,8 @@ def run():
             if fix not in issues_fixed:
                 issues_fixed.append(fix)
         unresolved_dicts = state.unresolved
-        print(f"  Agent loop completed: {len(issues_fixed)} fixed, {len(unresolved_dicts)} unresolved")
+        print(f"  Agent loop completed: {len(issues_fixed)} fixed, "
+              f"{len(unresolved_dicts)} unresolved")
 
     # skip any workflow file that references CIRecon itself
     patches = [
@@ -195,7 +201,7 @@ def run():
     sys.exit(0)
 
 
-def run_dashboard():
+def run_dashboard() -> None:
     github_token = os.getenv("GITHUB_TOKEN", "")
     repos_str = os.getenv("REPOS", "")
     gist_id = os.getenv("GIST_ID", "")

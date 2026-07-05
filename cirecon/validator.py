@@ -7,7 +7,6 @@ import yaml
 
 from cirecon.rule_engine import run_all_checks
 
-
 _SCHEMA_CACHE: Optional[dict] = None
 
 

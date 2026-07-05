@@ -43,7 +43,11 @@ def run_rule_checks_tool(path: str, content: str) -> ToolResult:
             "id": i.id,
             "severity": i.severity.value,
             "message": i.message,
-            "location": {"file": i.location.file, "line": i.location.line, "column": i.location.column},
+            "location": {
+                "file": i.location.file,
+                "line": i.location.line,
+                "column": i.location.column,
+            },
             "auto_fixable": i.auto_fixable,
             "confidence": i.confidence,
             "suggested_fix": i.suggested_fix,
@@ -83,11 +87,18 @@ def propose_fix(issue_dict: dict, file_section: str, api_key: str) -> ToolResult
     payload = {
         "model": CLAUDE_MODEL,
         "max_tokens": 2000,
-        "system": "You are a GitHub Actions YAML repair tool. Return only the fixed YAML block, nothing else.",
+        "system": (
+            "You are a GitHub Actions YAML repair tool. "
+            "Return only the fixed YAML block, nothing else."
+        ),
         "messages": [
             {
                 "role": "user",
-                "content": f"Issue: {issue_dict.get('message', '')}\n\nFile section:\n```yaml\n{file_section}\n```\n\nFix the YAML above.",
+                "content": (
+                    f"Issue: {issue_dict.get('message', '')}\n\n"
+                    f"File section:\n```yaml\n{file_section}\n```\n\n"
+                    "Fix the YAML above."
+                ),
             }
         ],
     }
@@ -131,13 +142,26 @@ def create_branch_and_pr(
     try:
         branch_name = f"ci-recon/fix-{int(time.time())}"
 
-        subprocess.run(["git", "config", "user.email", "cirecon@ci-recon.dev"], check=True, capture_output=True)
-        subprocess.run(["git", "config", "user.name", "CIRecon"], check=True, capture_output=True)
-        subprocess.run(["git", "checkout", "-B", branch_name], check=True, capture_output=True)
+        subprocess.run(
+            ["git", "config", "user.email", "cirecon@ci-recon.dev"],
+            check=True, capture_output=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "CIRecon"],
+            check=True, capture_output=True,
+        )
+        subprocess.run(
+            ["git", "checkout", "-B", branch_name],
+            check=True, capture_output=True,
+        )
 
         print(f"DEBUG: Files to commit: {[p['path'] for p in patches]}")
         for patch in patches:
-            print(f"DEBUG: {patch['path']} — {len(patch['content'])} bytes — has jobs: {'jobs:' in patch['content']}")
+            debug_msg = (
+                f"DEBUG: {patch['path']} — {len(patch['content'])} bytes "
+                f"— has jobs: {'jobs:' in patch['content']}"
+            )
+            print(debug_msg)
 
         for patch in patches:
             file_path = patch["path"]
@@ -152,7 +176,10 @@ def create_branch_and_pr(
         print("DEBUG: Running git add -A")
 
         subprocess.run(["git", "add", "-A"], check=True, capture_output=True)
-        subprocess.run(["git", "commit", "-m", "[CIRecon] Auto-fix CI/CD workflow issues"], check=True, capture_output=True)
+        subprocess.run(
+            ["git", "commit", "-m", "[CIRecon] Auto-fix CI/CD workflow issues"],
+            check=True, capture_output=True,
+        )
         remote_url = f"https://x-access-token:{github_token}@github.com/{repo}.git"
         subprocess.run(["git", "push", remote_url, branch_name], check=True, capture_output=True)
 

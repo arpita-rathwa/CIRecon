@@ -1,6 +1,5 @@
 import json
 from dataclasses import dataclass, field
-from typing import Optional
 
 import requests
 
@@ -122,7 +121,10 @@ TOOL_DEFINITIONS = [
     },
     {
         "name": "create_pr",
-        "description": "Create a pull request with all accumulated patches. Call this when all fixes are applied.",
+        "description": (
+            "Create a pull request with all accumulated patches. "
+            "Call this when all fixes are applied."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {},
@@ -299,7 +301,8 @@ def _update_state_from_dispatch(
         patch = result["data"].get("patch", "")
         issue_id = tool_input.get("issue_id", "unknown")
         state.patches.append(
-            {"issue_id": issue_id, "patch": patch, "file_section": tool_input.get("file_section", "")}
+            {"issue_id": issue_id, "patch": patch,
+             "file_section": tool_input.get("file_section", "")}
         )
 
     elif tool_name == "apply_fix":

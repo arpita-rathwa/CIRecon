@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from cirecon.org_scanner import _calculate_health_score, scan_repos
 from cirecon.rule_engine import Issue, Location, Severity

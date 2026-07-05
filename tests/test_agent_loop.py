@@ -1,9 +1,8 @@
-import json
 from unittest.mock import patch
 
 from cirecon.agent_loop import (
-    AgentState,
     TOOL_DEFINITIONS,
+    AgentState,
     build_context,
     dispatch_tool,
     run_agent_loop,
