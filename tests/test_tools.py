@@ -205,8 +205,9 @@ def test_create_branch_and_pr_includes_unresolved_table(mock_github):
     assert "Could not fix B" in pr_body
 
 
+@patch("cirecon.tools.subprocess.run")
 @patch("cirecon.tools.Github")
-def test_create_branch_and_pr_api_error(mock_github):
+def test_create_branch_and_pr_api_error(mock_github, mock_subproc):
     mock_github.side_effect = Exception("GitHub API error")
 
     result = create_branch_and_pr(

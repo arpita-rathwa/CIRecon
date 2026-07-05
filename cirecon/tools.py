@@ -1,6 +1,7 @@
 import json
+import subprocess
+import time
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Optional
 
 import requests
@@ -133,25 +134,22 @@ def create_branch_and_pr(
     repo: str,
 ) -> ToolResult:
     try:
-        g = Github(github_token)
-        repo_obj = g.get_repo(repo)
-        default_branch = repo_obj.default_branch
-        sb = repo_obj.get_branch(default_branch)
+        branch_name = f"ci-recon/fix-{int(time.time())}"
 
-        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-        branch_name = f"ci-recon/fix-{timestamp}"
-        repo_obj.create_git_ref(ref=f"refs/heads/{branch_name}", sha=sb.commit.sha)
+        subprocess.run(["git", "config", "user.email", "cirecon@ci-recon.dev"], check=True, capture_output=True)
+        subprocess.run(["git", "config", "user.name", "CIRecon"], check=True, capture_output=True)
+        subprocess.run(["git", "checkout", "-B", branch_name], check=True, capture_output=True)
 
         for patch in patches:
-            file_path = patch.get("path")
-            content = patch.get("content", "")
-            commit_msg = f"fix: {file_path} - automated CIRecon repair"
-            repo_obj.create_file(
-                path=file_path,
-                message=commit_msg,
-                content=content,
-                branch=branch_name,
-            )
+            file_path = patch["path"]
+            content = patch["content"]
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(content)
+
+        subprocess.run(["git", "add", "-A"], check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-m", "[CIRecon] Auto-fix CI/CD workflow issues"], check=True, capture_output=True)
+        remote_url = f"https://x-access-token:{github_token}@github.com/{repo}.git"
+        subprocess.run(["git", "push", remote_url, branch_name], check=True, capture_output=True)
 
         fixed_rows = "\n".join(
             f"| `{i['id']}` | {i.get('message', '')} | Fixed |"
@@ -174,6 +172,9 @@ def create_branch_and_pr(
 {unresolved_rows if unresolved_rows else 'None — all issues resolved.'}
 """
 
+        g = Github(github_token)
+        repo_obj = g.get_repo(repo)
+        default_branch = repo_obj.default_branch
         title = "CIRecon: Automated workflow repairs"
         pr = repo_obj.create_pull(
             title=title,
