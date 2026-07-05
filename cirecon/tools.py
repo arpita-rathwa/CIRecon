@@ -156,15 +156,21 @@ def create_branch_and_pr(
             check=True, capture_output=True,
         )
 
-        print(f"DEBUG: Files to commit: {[p['path'] for p in patches]}")
         for patch in patches:
+            if not patch['path'].startswith('.github/workflows/'):
+                raise ValueError(f"CIRecon attempted to patch non-workflow file: {patch['path']}")
+
+        workflow_patches = [p for p in patches if p['path'].startswith('.github/workflows/')]
+
+        print(f"DEBUG: Files to commit: {[p['path'] for p in workflow_patches]}")
+        for patch in workflow_patches:
             debug_msg = (
                 f"DEBUG: {patch['path']} — {len(patch['content'])} bytes "
                 f"— has jobs: {'jobs:' in patch['content']}"
             )
             print(debug_msg)
 
-        for patch in patches:
+        for patch in workflow_patches:
             file_path = patch["path"]
             content = patch["content"]
             print(f"DEBUG: Writing {file_path} ({len(content)} bytes)")
@@ -174,9 +180,9 @@ def create_branch_and_pr(
             with open(file_path, "w", encoding="utf-8") as f:
                 f.write(content)
 
-        print("DEBUG: Running git add -A")
+        print("DEBUG: Running git add .github/workflows/")
 
-        subprocess.run(["git", "add", "-A"], check=True, capture_output=True)
+        subprocess.run(["git", "add", ".github/workflows/"], check=True, capture_output=True)
         subprocess.run(
             ["git", "commit", "-m", "[CIRecon] Auto-fix CI/CD workflow issues"],
             check=True, capture_output=True,

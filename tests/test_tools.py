@@ -2,6 +2,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 import requests
 
 from cirecon.tools import (
@@ -199,7 +200,7 @@ def test_create_branch_and_pr_includes_unresolved_table(mock_github, mock_subpro
     mock_pr = mock_repo.create_pull.return_value
     mock_pr.html_url = "https://github.com/test/repo/pull/43"
 
-    patches = [{"path": "f.yml", "content": "fixed"}]
+    patches = [{"path": ".github/workflows/f.yml", "content": "fixed"}]
     issues_fixed = [{"id": "RULE_A", "message": "Fixed A"}]
     unresolved = [{"id": "RULE_B", "message": "Could not fix B"}]
 
@@ -208,6 +209,7 @@ def test_create_branch_and_pr_includes_unresolved_table(mock_github, mock_subpro
         orig_cwd = os.getcwd()
         try:
             os.chdir(tmp)
+            (Path(tmp) / ".github/workflows").mkdir(parents=True)
             result = create_branch_and_pr(
                 patches=patches,
                 issues_fixed=issues_fixed,
@@ -240,3 +242,76 @@ def test_create_branch_and_pr_api_error(mock_github, mock_subproc):
     )
     assert result.success is False
     assert result.error is not None
+
+
+@patch("cirecon.tools.subprocess.run")
+@patch("cirecon.tools.Github")
+def test_create_branch_and_pr_rejects_non_workflow_patches(mock_github, mock_subproc):
+    mock_subproc.return_value.returncode = 0
+    mock_repo = mock_github.return_value.get_repo.return_value
+    mock_repo.default_branch = "main"
+
+    patches = [
+        {"path": ".github/workflows/ci.yml", "content": "name: CI\n"},
+        {"path": "README.md", "content": "# Readme\n"},
+    ]
+
+    with tempfile.TemporaryDirectory() as tmp:
+        import os
+        orig_cwd = os.getcwd()
+        try:
+            os.chdir(tmp)
+            (Path(tmp) / ".github/workflows").mkdir(parents=True)
+            (Path(tmp) / "README.md").write_text("# Readme\n")
+            result = create_branch_and_pr(
+                patches=patches,
+                issues_fixed=[],
+                unresolved=[],
+                github_token="ghp_token",
+                repo="test/repo",
+            )
+        finally:
+            os.chdir(orig_cwd)
+
+    assert result.success is False
+    assert "CIRecon attempted to patch non-workflow file: README.md" in result.error
+
+    add_calls = [c for c in mock_subproc.call_args_list if c[0][0] == ["git", "add", ".github/workflows/"]]
+    assert len(add_calls) == 0, "git add should not be called when a non-workflow patch is present"
+
+
+@patch("cirecon.tools.subprocess.run")
+@patch("cirecon.tools.Github")
+def test_create_branch_and_pr_uses_workflow_git_add(mock_github, mock_subproc):
+    mock_subproc.return_value.returncode = 0
+    mock_repo = mock_github.return_value.get_repo.return_value
+    mock_repo.default_branch = "main"
+    mock_pr = mock_repo.create_pull.return_value
+    mock_pr.html_url = "https://github.com/test/repo/pull/99"
+
+    patches = [
+        {"path": ".github/workflows/ci.yml", "content": "name: CI\n"},
+        {"path": ".github/workflows/deploy.yml", "content": "name: Deploy\n"},
+    ]
+
+    with tempfile.TemporaryDirectory() as tmp:
+        import os
+        orig_cwd = os.getcwd()
+        try:
+            os.chdir(tmp)
+            (Path(tmp) / ".github/workflows").mkdir(parents=True)
+            result = create_branch_and_pr(
+                patches=patches,
+                issues_fixed=[],
+                unresolved=[],
+                github_token="ghp_token",
+                repo="test/repo",
+            )
+        finally:
+            os.chdir(orig_cwd)
+
+    assert result.success is True
+
+    add_calls = [c for c in mock_subproc.call_args_list if c[0][0][:2] == ["git", "add"]]
+    assert len(add_calls) == 1
+    assert add_calls[0][0][0] == ["git", "add", ".github/workflows/"]
