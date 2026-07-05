@@ -88,7 +88,7 @@ def run():
             print(f"  FIXED: {issue.id} in {path}")
         else:
             unresolved_dicts.append(d)
-            print(f"  FAILED: {issue.id} in {path} — fix did not pass validation")
+            print(f"  FAILED: {issue.id} in {path} — {' | '.join(validation.errors)}")
 
     if unresolved_dicts and anthropic_api_key:
         print(f"\nRunning agent loop for {len(unresolved_dicts)} unresolved issues...")
