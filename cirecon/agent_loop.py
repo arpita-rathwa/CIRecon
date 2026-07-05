@@ -28,6 +28,7 @@ class AgentState:
     iteration: int = 0
     tool_history: list[dict] = field(default_factory=list)
     patches: list[dict] = field(default_factory=list)
+    applied_fixes: list[dict] = field(default_factory=list)
     validation_results: list[ValidationResult] = field(default_factory=list)
 
 
@@ -231,7 +232,7 @@ def dispatch_tool(tool_name: str, tool_input: dict, context: dict) -> dict:
             result = apply_fix_tool(tool_input["path"], tool_input["patch"])
         elif tool_name == "create_pr":
             result = create_branch_and_pr(
-                context["state"].patches,
+                context["state"].applied_fixes,
                 context["state"].issues_fixed,
                 context["state"].unresolved,
                 context["github_token"],
@@ -303,9 +304,10 @@ def _update_state_from_dispatch(
 
     elif tool_name == "apply_fix":
         path = tool_input.get("path", "")
+        patch = tool_input.get("patch", "")
         issue_id = ""
         for p in state.patches:
-            if p.get("patch") == tool_input.get("patch"):
+            if p.get("patch") == patch:
                 issue_id = p.get("issue_id", "")
                 break
         fixed_issue = None
@@ -315,6 +317,7 @@ def _update_state_from_dispatch(
                 break
         if fixed_issue:
             state.issues_fixed.append(fixed_issue)
+            state.applied_fixes.append({"path": path, "content": patch})
 
 
 def run_agent_loop(

@@ -117,20 +117,17 @@ def test_propose_fix_api_error(mock_post):
 
 
 def test_apply_fix_tool_success():
-    with tempfile.TemporaryDirectory() as tmp:
-        f = Path(tmp) / "test.yml"
-        f.write_text("name: CI\non: [push]\n", encoding="utf-8")
-        patch = "name: CI\non: [push]\npermissions:\n  contents: read\n"
-        result = apply_fix_tool(str(f), patch)
-        assert result.success is True
-        assert "original" in result.data
-        assert result.data["patched"] == patch
+    patch = "name: CI\non: [push]\npermissions:\n  contents: read\n"
+    result = apply_fix_tool("test.yml", patch)
+    assert result.success is True
+    assert result.data["patched"] == patch
+    assert result.data["path"] == "test.yml"
 
 
 def test_apply_fix_tool_file_not_found():
     result = apply_fix_tool("nonexistent.yml", "patch")
-    assert result.success is False
-    assert result.error is not None
+    assert result.success is True
+    assert result.data["patched"] == "patch"
 
 
 @patch("cirecon.tools.subprocess.run")

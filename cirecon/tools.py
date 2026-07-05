@@ -113,14 +113,9 @@ def propose_fix(issue_dict: dict, file_section: str, api_key: str) -> ToolResult
 
 def apply_fix_tool(path: str, patch: str) -> ToolResult:
     try:
-        from pathlib import Path
-
-        p = Path(path)
-        original = p.read_text(encoding="utf-8")
-        p.write_text(patch, encoding="utf-8")
         return ToolResult(
             success=True,
-            data={"path": path, "original": original, "patched": patch},
+            data={"path": path, "patched": patch},
         )
     except Exception as e:
         return ToolResult(success=False, data={}, error=str(e))
