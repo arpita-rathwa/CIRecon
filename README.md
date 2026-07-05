@@ -1,38 +1,37 @@
 # CIRecon
 
-> Agentic CI/CD repair for GitHub Actions — detects broken workflow files, auto-fixes what it can, and opens a PR with the rest.
+> Security-aware CI/CD linter for GitHub Actions — detects workflow misconfigurations, auto-fixes what it can, and reports everything directly in your Actions UI.
 
 [![CI](https://github.com/arpita-rathwa/CIRecon/actions/workflows/ci.yml/badge.svg)](https://github.com/arpita-rathwa/CIRecon/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.11+-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![GitHub Actions](https://img.shields.io/badge/GitHub-Marketplace-orange)](https://github.com/marketplace/actions/cirecon)
+[![GitHub Marketplace](https://img.shields.io/badge/GitHub-Marketplace-orange)](https://github.com/marketplace/actions/cirecon)
+[![Coverage](https://img.shields.io/badge/coverage-82%25-brightgreen)](https://github.com/arpita-rathwa/CIRecon)
 
 ---
 
 ## The problem
 
-A misindented YAML block, a deprecated action version, a `needs:` reference pointing to a renamed job — any of these silently breaks your entire pipeline. You push, CI fails, you read the logs, you edit the YAML, you push again. CIRecon eliminates this loop.
+A misindented YAML block, a deprecated action version, a `needs:` reference pointing to a renamed job, a secret accidentally printed to logs — any of these can silently break your pipeline or expose your infrastructure. CIRecon catches them before they cause damage.
 
 ---
 
 ## What it does
 
-CIRecon runs automatically when you push changes to `.github/workflows/`. It:
+CIRecon runs automatically on every push to `.github/workflows/`. It:
 
-1. Scans every workflow file with a deterministic rule engine (7 rules in v2)
+1. Scans every workflow file with a deterministic rule engine — **7 rules** covering syntax, correctness, and security
 2. Auto-fixes everything it can confidently repair
 3. Uses an agentic Claude-powered loop for issues that need reasoning
 4. Validates every fix before committing — no broken patches ever land
-5. Generates a structured **Job Summary** in the GitHub Actions UI
-6. Opens a pull request with a full audit trail of what was fixed and what needs attention
-
-You review, you merge. CIRecon never touches your main branch directly.
+5. Writes a structured **Job Summary** directly in the GitHub Actions UI — no PR noise, no extra permissions
+6. Optionally scans your **entire org** and publishes a health dashboard to a GitHub Gist
 
 ---
 
 ## Quickstart
 
-Add this to any workflow file in your repo:
+### Per-repo scan (default)
 
 ```yaml
 name: CIRecon
@@ -49,28 +48,107 @@ jobs:
       contents: write
       pull-requests: write
     steps:
+      - uses: actions/checkout@v4
       - uses: arpita-rathwa/CIRecon@v2
         with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
 ```
 
-> `anthropic-api-key` is optional. Without it, CIRecon runs in rule-engine-only mode — still fixes the majority of common issues for free.
+### Org-wide dashboard
+
+```yaml
+name: CIRecon Dashboard
+
+on:
+  schedule:
+    - cron: '0 9 * * 1'  # every Monday 9am
+  workflow_dispatch:
+
+jobs:
+  dashboard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: arpita-rathwa/CIRecon@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          mode: dashboard
+          repos: 'owner/repo1,owner/repo2,owner/repo3'
+          gist-id: ${{ vars.CIRECON_GIST_ID }}
+```
+
+> `anthropic-api-key` is optional. Without it, CIRecon runs in rule-engine-only mode and still catches and fixes the majority of issues for free.
 
 ---
 
 ## What CIRecon checks
 
+### Correctness rules
+
 | Rule | Description | Severity | Auto-fixable |
 |---|---|---|---|
-| `RULE_DEPRECATED_ACTION` | Detects actions pinned to outdated versions (e.g. `checkout@v2` → `@v4`). Skips SHA-pinned actions. | Medium | ✅ Yes |
-| `RULE_MISSING_PERMISSIONS_BLOCK` | Flags workflows with no top-level `permissions:` block. Without it, `GITHUB_TOKEN` has broad default access. | Medium | ✅ Yes |
-| `RULE_BROKEN_NEEDS_DEPENDENCY` | Catches jobs with `needs:` referencing non-existent job IDs. | Medium | ❌ — flagged for review |
-| `RULE_SECRET_IN_RUN_COMMAND` | Detects `${{ secrets.* }}` embedded in `run:` shell commands (leaks in logs). | Critical | ❌ — flagged for review |
-| `RULE_PULL_REQUEST_TARGET_UNSAFE` | Flags `pull_request_target` + `actions/checkout` with the attacker-controlled PR ref. | Critical | ❌ — flagged for review |
-| `RULE_OVERLY_BROAD_PERMISSIONS` | Detects `write-all` or ≥3 write-level permissions at top-level or job-level. | High | ❌ — flagged for review |
-| `RULE_UNPINNED_THIRD_PARTY_ACTION` | Flags third-party actions not pinned to a full 40-char commit SHA. | High | ❌ — flagged for review |
+| `RULE_DEPRECATED_ACTION` | Actions pinned to outdated versions (e.g. `checkout@v2` → `@v4`). SHA-pinned actions are exempt. | MEDIUM | ✅ Yes |
+| `RULE_MISSING_PERMISSIONS_BLOCK` | No top-level `permissions:` block — `GITHUB_TOKEN` gets broad default access. | HIGH | ✅ Yes |
+| `RULE_BROKEN_NEEDS_DEPENDENCY` | Job `needs:` references a job ID that doesn't exist. | HIGH | ❌ Manual fix |
 
-More rules welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) to add your own.
+### Security rules
+
+| Rule | Description | Severity | Auto-fixable |
+|---|---|---|---|
+| `RULE_SECRET_IN_RUN_COMMAND` | `${{ secrets.* }}` embedded in `run:` commands — secret values appear in plain text in logs. | CRITICAL | ❌ Manual fix |
+| `RULE_PULL_REQUEST_TARGET_UNSAFE` | `pull_request_target` + `actions/checkout` with PR ref — known RCE vector giving untrusted code write access. | CRITICAL | ❌ Manual fix |
+| `RULE_OVERLY_BROAD_PERMISSIONS` | `write-all` or 3+ write-level permissions — increases blast radius if workflow is compromised. | HIGH | ❌ Manual fix |
+| `RULE_UNPINNED_THIRD_PARTY_ACTION` | Third-party action not pinned to a full 40-char commit SHA — can be silently updated with malicious code. | HIGH | ❌ Manual fix |
+
+More rules welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+---
+
+## Job Summary
+
+Every CIRecon run writes a structured report directly to the GitHub Actions UI — no PR needed, no extra permissions, always visible on the run page:
+
+```
+## CIRecon Report
+
+Files scanned: 2 | Issues found: 4 | Auto-fixable: 2 | Needs attention: 2
+
+### Issues Found
+
+| File | Rule | Severity | Auto-fixable | Suggested Fix |
+|---|---|---|---|---|
+| ci.yml | RULE_DEPRECATED_ACTION | MEDIUM | ✅ | actions/checkout@v4 |
+| ci.yml | RULE_MISSING_PERMISSIONS_BLOCK | HIGH | ✅ | permissions: contents: read |
+| deploy.yml | RULE_SECRET_IN_RUN_COMMAND | CRITICAL | ❌ | Manual fix required |
+| deploy.yml | RULE_UNPINNED_THIRD_PARTY_ACTION | HIGH | ❌ | Pin to full SHA |
+```
+
+---
+
+## Org-wide dashboard
+
+CIRecon can scan all your repos on a schedule and publish a health dashboard to a GitHub Gist:
+
+```
+# CIRecon Org Health Dashboard
+Last updated: 2025-07-01 09:00 UTC
+
+## Summary
+| Metric | Value |
+|---|---|
+| Repos scanned | 5 |
+| Average health score | 74/100 |
+| Critical issues | 2 |
+| Clean repos | 1 |
+
+## Repo Health Scores
+| Repo | Health Score | Issues | Status |
+|---|---|---|---|
+| arpita-rathwa/CIRecon | 100/100 | 0 | ✅ Clean |
+| arpita-rathwa/LendIQ | 65/100 | 4 | ⚠️ Issues found |
+```
+
+Health score starts at 100 and deducts points per issue severity (CRITICAL: -20, HIGH: -10, MEDIUM: -5, LOW: -2).
 
 ---
 
@@ -78,17 +156,18 @@ More rules welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) to add your own.
 
 ```
 push event
+    → load per-repo memory (.github/cirecon/memory.json)
     → rule engine scans all .github/workflows/*.yml
     → deterministic fixes applied + validated
     → agent loop (Claude) handles remaining issues
-    → pull request opened with full audit trail
+    → Job Summary written to Actions UI
+    → PR opened if fixes were applied
+    → memory updated on PR merge
 ```
 
-CIRecon is designed **deterministic-first** — the rule engine runs before any LLM call. Claude is only invoked for issues that static analysis can't resolve with confidence. This keeps costs low and behaviour predictable.
+CIRecon is **deterministic-first** — the rule engine always runs before any LLM call. Claude is only invoked for issues static analysis can't resolve confidently, keeping costs low and behaviour predictable.
 
-At the end of every run, CIRecon writes a **Job Summary** (`$GITHUB_STEP_SUMMARY`) with a table of all issues found, fixed, and unresolved — visible directly in the GitHub Actions UI.
-
-Per-repo memory at `.github/cirecon/memory.json` means CIRecon learns from past runs — it won't re-suggest fixes that were previously rejected, and it recognises recurring patterns over time.
+Per-repo memory means CIRecon gets smarter over time — it won't re-suggest fixes that were previously rejected and recognises recurring patterns.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the full system design.
 
@@ -100,70 +179,40 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full system design.
 
 | Input | Description | Default |
 |---|---|---|
-| `anthropic-api-key` | Anthropic API key — enables Claude-powered fallback for issues the rule engine can't fix | _(optional)_ |
-| `github-token` | GitHub token with `contents: write` and `pull-requests: write` | _(required)_ |
+| `github-token` | GitHub token for branch and PR creation | _(required)_ |
+| `anthropic-api-key` | Anthropic API key — enables Claude-powered fallback | _(optional)_ |
+| `claude-model` | Claude model to use for LLM fallback | `claude-haiku-4-5-20251001` |
 | `max-iterations` | Maximum agent loop iterations per run | `10` |
-| `fail-on-unresolved` | Exit with error if issues remain unresolved | `false` |
+| `fail-on-unresolved` | Exit with error code 1 if issues remain unresolved | `false` |
 
 ### Dashboard mode
 
-Set `mode: dashboard` and provide a comma-separated list of repos to scan:
-
 | Input | Description | Default |
 |---|---|---|
-| `mode` | Set to `dashboard` to scan multiple repos | `scan` |
-| `repos` | Comma-separated list of `owner/repo` to scan | _(required in dashboard mode)_ |
-| `gist-id` | Existing Gist ID to update (omit to create a new Gist) | _(optional)_ |
-
-Dashboard mode clones each repo (shallow, depth=1), runs all 7 rules, computes a health score per repo, and publishes a markdown dashboard to a **GitHub Gist** (also appended to the Job Summary).
-
----
-
-## Example PR
-
-When CIRecon finds and fixes issues, it opens a PR like this:
-
-```
-[CIRecon] Auto-fix 3 CI/CD workflow issue(s)
-
-Files scanned: 2
-Issues found: 3
-Issues auto-fixed: 2
-Requires human attention: 1
-
-Fixed Issues
-─────────────────────────────────────────────────
-deploy.yml  | RULE_DEPRECATED_ACTION       | actions/checkout@v2 → @v4   | ✅
-test.yml    | RULE_MISSING_PERMISSIONS_BLOCK| Added permissions block      | ✅
-
-Unresolved Issues
-─────────────────────────────────────────────────
-release.yml | RULE_BROKEN_NEEDS_DEPENDENCY | Job 'deploy' needs 'build'
-              which does not exist — please fix manually
-```
+| `mode` | Set to `dashboard` to enable org-wide scanning | `scan` |
+| `repos` | Comma-separated list of `owner/repo` to scan | _(required)_ |
+| `gist-id` | Existing Gist ID to update — omit to create a new one | _(optional)_ |
 
 ---
 
 ## Why not just use actionlint?
 
-`actionlint` is a great static linter — CIRecon respects it. The difference:
-
-| | actionlint | CIRecon |
-|---|---|---|---|
-| Detects issues | ✅ | ✅ |
+| Feature | actionlint | CIRecon |
+|---|---|---|
+| Detects syntax issues | ✅ | ✅ |
+| Detects security misconfigurations | ❌ | ✅ |
 | Auto-fixes issues | ❌ | ✅ |
-| Opens a PR with fixes | ❌ | ✅ |
 | LLM fallback for complex issues | ❌ | ✅ |
-| Per-repo memory | ❌ | ✅ |
 | Job Summary in Actions UI | ❌ | ✅ |
-| Org-wide dashboard (Gist) | ❌ | ✅ |
+| Per-repo memory | ❌ | ✅ |
+| Org-wide health dashboard | ❌ | ✅ |
 | Free to use | ✅ | ✅ |
 
 ---
 
 ## Contributing
 
-CIRecon is designed to be extended. Adding a new rule takes about 15 minutes — see [CONTRIBUTING.md](CONTRIBUTING.md) for a step-by-step guide.
+Adding a new rule takes about 15 minutes. See [CONTRIBUTING.md](CONTRIBUTING.md) for a step-by-step guide covering rule implementation, fixtures, and tests.
 
 ---
 
