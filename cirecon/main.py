@@ -111,8 +111,11 @@ def run():
         unresolved_dicts = state.unresolved
         print(f"  Agent loop completed: {len(issues_fixed)} fixed, {len(unresolved_dicts)} unresolved")
 
-    # exclude CIRecon's own trigger workflow file from patches
-    patches = [p for p in patches if 'cirecon.yml' not in p['path']]
+    # skip any workflow file that references CIRecon itself
+    patches = [
+        p for p in patches 
+        if 'cirecon' not in p['path'].lower()
+    ]
 
     if patches and github_token and repo:
         result = create_branch_and_pr(
