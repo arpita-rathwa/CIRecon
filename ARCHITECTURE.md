@@ -1,6 +1,6 @@
 # CIRecon Architecture
 
-> A deterministic-first, agent-assisted GitHub Action for CI/CD workflow repair.
+> A deterministic-first, security-aware, agent-assisted GitHub Action for CI/CD workflow repair and org-wide health monitoring.
 
 ---
 
@@ -10,14 +10,15 @@
 2. [High-Level Architecture](#2-high-level-architecture)
 3. [Architecture Layers](#3-architecture-layers)
 4. [Memory Layer](#4-memory-layer)
-5. [End-to-End Data Flow](#5-end-to-end-data-flow)
-6. [Technology Stack](#6-technology-stack)
-7. [Design Decisions and Tradeoffs](#7-design-decisions-and-tradeoffs)
-8. [Security](#8-security)
-9. [Scalability](#9-scalability)
-10. [Known Limitations](#10-known-limitations)
-11. [Future Roadmap](#11-future-roadmap)
-12. [Mermaid Diagrams](#12-mermaid-diagrams)
+5. [Dashboard Mode](#5-dashboard-mode)
+6. [End-to-End Data Flow](#6-end-to-end-data-flow)
+7. [Technology Stack](#7-technology-stack)
+8. [Design Decisions and Tradeoffs](#8-design-decisions-and-tradeoffs)
+9. [Security](#9-security)
+10. [Scalability](#10-scalability)
+11. [Known Limitations](#11-known-limitations)
+12. [Future Roadmap](#12-future-roadmap)
+13. [Mermaid Diagrams](#13-mermaid-diagrams)
 
 ---
 
@@ -25,68 +26,74 @@
 
 ### What CIRecon Is
 
-CIRecon is an open-source GitHub Action that automatically scans `.github/workflows/*.yml` files in a repository, detects CI/CD configuration errors using a rule-based static analysis engine, and — when deterministic analysis cannot resolve an issue — invokes the Claude API through a structured tool-calling loop to reason about and repair the problem. All validated fixes are committed to a new branch and surfaced as a Pull Request with a structured explanation.
+CIRecon is an open-source GitHub Action that automatically scans `.github/workflows/*.yml` files, detects CI/CD configuration errors and security misconfigurations using a rule-based static analysis engine, and — when deterministic analysis cannot resolve an issue — invokes the Claude API through a structured tool-calling loop to reason about repairs. Every run writes a structured **Job Summary** directly to the GitHub Actions UI. CIRecon also supports an org-wide dashboard mode that scans multiple repositories and publishes a health score report to a GitHub Gist.
 
 ### The Problem It Solves
 
-Broken CI/CD pipelines are disproportionately expensive relative to their root causes. A misindented YAML block, a deprecated action version, a missing `permissions` key, or a `needs:` reference pointing to a renamed job — any of these can silently block an entire team's deployment pipeline. Diagnosing these failures requires reading log output, cross-referencing the GitHub Actions schema, and manually editing YAML files before re-pushing to trigger another run.
+Broken CI/CD pipelines are disproportionately expensive relative to their root causes. A misindented YAML block, a deprecated action version, a missing `permissions` key, or a `needs:` reference pointing to a renamed job can silently block an entire team's deployment pipeline. More seriously, security misconfigurations — secrets printed to logs, dangerous `pull_request_target` patterns, overly broad permissions — can expose infrastructure to attack without any visible failure.
 
-CIRecon eliminates this loop. It detects the class of errors that are mechanically fixable, fixes them without human intervention, and brings the remaining issues to the developer's attention in a structured, reviewable format — the Pull Request.
+CIRecon eliminates both problems. It detects mechanically fixable errors and fixes them, detects security misconfigurations and explains them, and surfaces everything in a structured Job Summary directly on the Actions run page — no PR noise, no extra permissions required.
 
 ### Intended Users
 
 - Individual developers who maintain repositories with GitHub Actions workflows
-- Teams that want automated CI/CD hygiene without a paid third-party SaaS
+- Security-conscious teams who want automated CI/CD hygiene without a paid SaaS
 - Open-source maintainers managing multiple repositories
 - MLOps engineers running GPU-intensive or artifact-heavy CI pipelines
-
-### Repository Workflow
-
-CIRecon is installed once in a repository by adding a workflow file that calls the action. It runs on push or pull request events targeting workflow files. It requires no persistent server, no external account, and no dashboard. The only external dependencies are the GitHub API (always present) and, optionally, the Anthropic API (BYO key via GitHub Secrets).
+- Platform teams who want org-wide visibility into CI/CD health
 
 ### High-Level Execution Lifecycle
 
-1. A push or PR event modifies a file under `.github/workflows/`
-2. GitHub spins up a runner and executes the CIRecon action
+**Scan mode (default):**
+1. A push event modifies a file under `.github/workflows/`
+2. GitHub spins up a runner and executes the CIRecon Docker action
 3. CIRecon loads repo-scoped memory from `.github/cirecon/memory.json` (if it exists)
 4. CIRecon reads all workflow files in the repository
-5. The rule engine runs deterministic checks and categorizes every issue by fixability
-6. Memory is consulted — previously rejected fixes are skipped, recurring patterns are flagged
-7. All deterministically fixable issues are patched immediately
-8. Any remaining issues are passed to the agent loop, which uses Claude's tool-calling API to reason about repairs iteratively
-9. All patches are validated before being committed
-10. A new branch is created, fixes are committed, memory is updated, and a PR is opened with a full audit trail
+5. The rule engine runs all 7 checks and categorizes every issue by fixability
+6. Memory is consulted — previously rejected fixes are skipped
+7. All auto-fixable issues are patched, validated, and committed via git subprocess
+8. Remaining issues are passed to the agent loop (if API key present)
+9. A **Job Summary** is written to `$GITHUB_STEP_SUMMARY` with the full issue table
+10. Memory is updated on PR merge
+
+**Dashboard mode:**
+1. A scheduled or manual trigger fires
+2. CIRecon clones each repo in the specified list (shallow, depth=1)
+3. Runs all 7 rules against every workflow file in each repo
+4. Computes a health score per repo
+5. Generates a markdown dashboard and publishes to a GitHub Gist
+6. Writes the dashboard to Job Summary as well
 
 ### Major Architectural Principles
 
-- **Deterministic first.** The rule engine always runs. The LLM is never called when a rule already covers the issue.
-- **LLM as bounded fallback.** The agent loop is constrained by a maximum iteration count, a validation gate, and explicit stopping conditions. It cannot run unboundedly.
-- **BYO key.** CIRecon does not manage API keys. Each user provides their own Anthropic API key as a GitHub Secret.
-- **No commits without validation.** Every patch is re-parsed and re-validated against the GitHub Actions schema before being written to disk.
-- **Human approval required.** CIRecon opens a PR. It never merges automatically.
+- **Deterministic first.** The rule engine always runs before any LLM call.
+- **Job Summary as primary output.** Every run produces a visible, structured report in the Actions UI with zero extra permissions.
+- **LLM as bounded fallback.** The agent loop is constrained by max iterations, a validation gate, and explicit stopping conditions.
+- **BYO key.** CIRecon never manages API keys. Each user provides their own.
+- **No commits without validation.** Every patch passes a 3-stage validation gate before being written to disk.
+- **Security-aware.** Four of the seven rules target security misconfigurations, not just syntax errors.
 
 ### Design Goals
 
 - Zero running cost for the project maintainer
 - Useful in rule-engine-only mode with no API key
-- Transparent: every fix is explained in the PR description
+- Transparent: every issue explained in Job Summary with exact fix
 - Safe: validation gate prevents committing broken YAML
-- Extensible: new rules can be added as Python functions without modifying the agent loop
-- Adaptive: per-repo memory means CIRecon gets more accurate over time, not just on first run
+- Extensible: new rules are single Python functions
+- Adaptive: per-repo memory improves accuracy over time
+- Org-visible: dashboard mode gives a cross-repo health overview
 
 ### Non-Goals
 
-- CIRecon does not review application code (use CodeRabbit or similar for that)
-- CIRecon does not merge PRs
-- CIRecon does not manage secrets or create them
-- CIRecon does not guarantee semantic correctness of complex business logic in workflows
-- CIRecon does not support GitLab CI or CircleCI in v1 (see roadmap)
+- CIRecon does not review application code
+- CIRecon does not merge PRs automatically
+- CIRecon does not create or manage GitHub Secrets
+- CIRecon does not support GitLab CI or CircleCI in v1
+- CIRecon does not guarantee semantic correctness of complex workflow business logic
 
 ---
 
 ## 2. High-Level Architecture
-
-CIRecon is structured as a layered pipeline. Each layer has a single responsibility and a defined interface. Control flows top-to-bottom; data flows between layers through structured Python objects.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -103,68 +110,55 @@ CIRecon is structured as a layered pipeline. Each layer has a single responsibil
                             │
                             ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                      Memory Layer                               │
-│  Load .github/cirecon/memory.json (repo-scoped)                │
-│  Past fixes, rejected PRs, recurring patterns, known secrets    │
-└───────────────────────────┬─────────────────────────────────────┘
-                            │ MemoryContext object
-                            ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                       Input Layer                               │
-│  Reads workflow files, CI logs, repo metadata, schema           │
-└───────────────────────────┬─────────────────────────────────────┘
-                            │ normalized WorkflowFile objects
-                            ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                      Rule Engine                                │
-│  16+ deterministic checks → structured Issue list               │
-│  Consults MemoryContext → skip rejected fixes                   │
-│  auto_fixable: true → immediate patch                           │
-│  auto_fixable: false → passed to agent loop                     │
+│                 Mode Router (main.py)                           │
+│  MODE=scan → run()   |   MODE=dashboard → run_dashboard()       │
 └────────────┬──────────────────────────┬────────────────────────┘
-             │ all fixed                │ unresolved issues remain
-             ▼                          ▼
+             │ scan                      │ dashboard
+             ▼                           ▼
 ┌────────────────────┐     ┌────────────────────────────────────┐
-│  Fix Applier       │     │          Agent Loop                │
-│  (deterministic)   │     │  Orchestrator + Claude API         │
-└────────┬───────────┘     │  Tool-calling, state tracking      │
-         │                 │  MemoryContext informs decisions    │
-         │                 │  Max iterations, stopping cond.    │
+│   Memory Layer     │     │      org_scanner.py                │
+│   Load memory.json │     │  Clone repos → run rule engine     │
+└────────┬───────────┘     │  Compute health scores             │
          │                 └──────────────┬─────────────────────┘
-         │                                │ proposed patches
-         │                                ▼
-         │                 ┌────────────────────────────────────┐
-         │                 │         Tool Layer                  │
-         │                 │  read_workflow_file                 │
-         │                 │  validate_yaml_schema               │
-         │                 │  run_rule_checks                    │
-         │                 │  check_secret_exists                │
-         │                 │  propose_fix                        │
-         │                 │  apply_fix                          │
-         │                 │  create_branch_and_pr               │
-         │                 └──────────────┬─────────────────────┘
-         │                                │
-         └──────────────┬─────────────────┘
-                        │ all patches collected
-                        ▼
+         ▼                                │
+┌────────────────────┐                   ▼
+│   Input Layer      │     ┌────────────────────────────────────┐
+│   Discover YAMLs   │     │      dashboard.py                  │
+└────────┬───────────┘     │  Generate markdown                 │
+         │                 │  Publish to GitHub Gist            │
+         ▼                 └──────────────┬─────────────────────┘
+┌────────────────────┐                   │
+│   Rule Engine      │                   │
+│   7 rules          │                   │
+│   correctness +    │                   │
+│   security         │                   │
+└────────┬───────────┘                   │
+         │                               │
+         ▼                               │
+┌────────────────────┐                   │
+│   Fix Applier      │                   │
+│   In-memory only   │                   │
+└────────┬───────────┘                   │
+         │                               │
+         ▼                               │
+┌────────────────────┐                   │
+│   Validation Layer │                   │
+│   3-stage gate     │                   │
+└────────┬───────────┘                   │
+         │                               │
+         ▼                               │
+┌────────────────────┐                   │
+│   Agent Loop       │                   │
+│   Claude API       │                   │
+│   Tool-calling     │                   │
+└────────┬───────────┘                   │
+         │                               │
+         ▼                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                    Validation Layer                             │
-│  Re-parse + re-validate every patched file                      │
-│  Reject patches that introduce new errors                       │
-└───────────────────────┬─────────────────────────────────────────┘
-                        │ validated patches only
-                        ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    Output Layer                                 │
-│  Create branch → commit files → open PR with structured body    │
-└───────────────────────┬─────────────────────────────────────────┘
-                        │ run complete
-                        ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                  Memory Update                                  │
-│  Append run results to memory.json                              │
-│  Update known_patterns, pr_status, recurring issues             │
-│  Commit memory.json to repo                                     │
+│                      Output Layer                               │
+│  Job Summary ($GITHUB_STEP_SUMMARY) — always                    │
+│  Git commit + PR — when fixes applied                           │
+│  Gist publish — dashboard mode                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -174,467 +168,191 @@ CIRecon is structured as a layered pipeline. Each layer has a single responsibil
 
 ### Trigger Layer
 
-**Purpose:** Initialize the action, load configuration, and pass environment context into the pipeline.
+CIRecon is packaged as a Docker container action. The `action.yml` manifest defines inputs and passes them as environment variables into the container.
 
-**Responsibilities:**
-- Define the action's interface via `action.yml`
-- Accept user-configured inputs
-- Load secrets from the environment
-- Set up the Docker container runtime
-
-**action.yml inputs:**
+**Inputs:**
 
 ```yaml
 inputs:
+  github-token:
+    required: true
   anthropic-api-key:
-    description: 'Anthropic API key (optional, enables LLM fallback)'
     required: false
-  auto-fix:
-    description: 'Whether to open a PR with fixes'
-    required: false
-    default: 'true'
+  claude-model:
+    default: 'claude-haiku-4-5-20251001'
   max-iterations:
-    description: 'Maximum agent loop iterations'
-    required: false
     default: '10'
   fail-on-unresolved:
-    description: 'Fail the workflow if issues remain after repair'
-    required: false
     default: 'false'
-  severity-threshold:
-    description: 'Minimum severity to report: low | medium | high | critical'
-    required: false
-    default: 'medium'
+  mode:
+    default: 'scan'
+  repos:
+    required: false   # dashboard mode only
+  gist-id:
+    required: false   # dashboard mode only
 ```
 
-**Why Docker container action over composite action:**
-A Docker container action guarantees a fixed, reproducible Python environment with all dependencies pinned. A composite action inherits the runner's environment, which can vary between GitHub-hosted runners and self-hosted runners, causing subtle dependency conflicts. For a tool that parses and modifies YAML files and calls external APIs, reproducibility is not optional.
+**Why Docker over composite action:** Docker guarantees a fixed, reproducible Python environment. Composite actions inherit the runner's Python version and system libraries, causing subtle dependency conflicts across runner types.
 
-**Permissions required:**
-
+**Permissions required (scan mode):**
 ```yaml
 permissions:
-  contents: write      # create branch, commit files
-  pull-requests: write # open PR
-  actions: read        # read workflow run logs
-  secrets: read        # check secret existence
+  contents: write
+  pull-requests: write
 ```
 
 ---
 
 ### Input Layer
 
-**Purpose:** Gather all data the rule engine and agent loop need before any analysis begins.
-
-**Responsibilities:**
-- Discover all workflow files in `.github/workflows/`
-- Parse each file into a normalized internal representation
-- Fetch the GitHub Actions JSON schema from SchemaStore
-- Retrieve CI failure logs from the triggering workflow run (if available)
-- Collect repository metadata (name, default branch, existing secrets list)
-
-**Workflow discovery:**
-
-```python
-@dataclass
-class WorkflowFile:
-    path: str
-    raw_content: str
-    parsed: dict          # PyYAML parse result
-    ruamel_parsed: Any    # ruamel.yaml parse result (preserves formatting)
-    schema: dict          # GitHub Actions JSON schema
-    ci_log: Optional[str] # failure log from the triggering run, if available
-```
-
-The schema is fetched from:
-```
-https://json.schemastore.org/github-workflow.json
-```
-
-It is cached locally for the duration of the run. It is never embedded in the repository because it changes as GitHub ships new Actions features.
-
-**Failure handling:** If a workflow file cannot be parsed by PyYAML at all (malformed YAML), it is flagged immediately with a `YAML_SYNTAX_ERROR` issue and excluded from further analysis until that error is resolved.
+Discovers all `.github/workflows/*.yml` and `.github/workflows/*.yaml` files using `pathlib.Path.glob()`. Each file is parsed into a `WorkflowFile` object containing the raw string, PyYAML parse result, and ruamel.yaml parse result. The GitHub Actions JSON schema is fetched from SchemaStore once per run and cached in memory.
 
 ---
 
 ### Rule Engine (Deterministic Layer)
 
-**Purpose:** Identify every detectable issue in a workflow file through static analysis, without any LLM involvement.
-
-**Why deterministic analysis precedes LLM reasoning:**
-LLM calls cost tokens and take time. The majority of CI/CD errors — deprecated action versions, missing `permissions` blocks, broken `needs:` references — are structurally detectable and structurally fixable with zero ambiguity. Calling an LLM to fix `actions/checkout@v2 → actions/checkout@v4` is wasteful. The rule engine handles these immediately, cheaply, and with 100% confidence. The LLM is only invoked for issues where static analysis cannot produce a confident fix.
+Seven independent rule functions run against each parsed workflow file. Each returns a list of `Issue` objects.
 
 **Issue schema:**
-
 ```python
 @dataclass
 class Issue:
-    id: str                    # e.g. "RULE_DEPRECATED_ACTION"
-    severity: Literal["low", "medium", "high", "critical"]
-    message: str               # human-readable description
-    location: Location         # file, line, column
-    auto_fixable: bool         # true = rule engine fixes it
-    confidence: float          # 0.0–1.0
-    suggested_fix: Optional[str]  # patch string if auto_fixable
+    id: str
+    severity: Severity        # LOW | MEDIUM | HIGH | CRITICAL
+    message: str
+    location: Location        # file, line, column
+    auto_fixable: bool
+    confidence: float         # 0.0–1.0
+    suggested_fix: Optional[str]
 ```
 
-**Rules:**
-
-| Rule ID | Description | Auto-fixable |
-|---|---|---|
-| `YAML_SYNTAX_ERROR` | File cannot be parsed as valid YAML | No |
-| `SCHEMA_VALIDATION_ERROR` | File does not conform to GitHub Actions schema | Partial |
-| `DEPRECATED_ACTION_VERSION` | Action pinned to a deprecated or outdated version (e.g. `@v2`) | Yes |
-| `INVALID_TRIGGER_SYNTAX` | `on:` block uses invalid event names or malformed syntax | Yes |
-| `MISSING_PERMISSIONS_BLOCK` | Workflow or job has no `permissions:` block | Yes |
-| `INVALID_RUNS_ON` | `runs-on` value is not a recognized runner label | No |
-| `BROKEN_NEEDS_DEPENDENCY` | A `needs:` entry references a job ID that does not exist | Yes |
-| `MISSING_USES_OR_RUN` | A step has neither `uses` nor `run` defined | No |
-| `DUPLICATE_JOB_ID` | Two jobs share the same ID | No |
-| `UNDEFINED_REUSABLE_WORKFLOW` | A `uses:` at job level references a non-existent workflow path | No |
-| `INVALID_MATRIX_SYNTAX` | `strategy.matrix` is malformed or references undefined keys | Partial |
-| `UNDEFINED_OUTPUT` | A job references an output not declared by the producing job | No |
-| `SECRET_NOT_FOUND` | A `${{ secrets.X }}` reference names a secret that does not exist in the repo | No |
-| `UNSUPPORTED_EXPRESSION` | An expression uses syntax not supported by GitHub Actions | No |
-| `MISSING_CHECKOUT_STEP` | A job that operates on repository files has no `actions/checkout` step | Yes |
-| `INVALID_REUSABLE_ACTION_REF` | A `uses:` step references a local action path that does not exist | No |
-
-**Parsing pipeline:**
-
-```
-raw YAML string
-    → PyYAML safe_load()            # structural parse, fast
-    → jsonschema.validate()         # schema conformance
-    → ruamel.yaml.load()            # comment-preserving parse for fix application
-    → rule functions (parallel)     # each rule is an independent function
-    → Issue list
-```
-
----
-
-### Agent Loop
-
-**Purpose:** Resolve issues that the rule engine cannot fix deterministically by reasoning about them iteratively using Claude's tool-calling API.
-
-**Why an explicit orchestration loop instead of a single LLM call:**
-A single LLM call with a list of issues and a request to "fix all of them" is unreliable for several reasons: the model may produce a patch that fixes one issue and introduces another; there is no mechanism to validate intermediate results; and the context window becomes unmanageable for large workflow files with many issues. An explicit loop with a validation gate after each tool execution gives CIRecon the ability to detect and reject bad patches before they accumulate.
-
-**State object:**
-
-```python
-@dataclass
-class AgentState:
-    scanned_files: List[str]
-    issues_found: List[Issue]
-    issues_fixed: List[Issue]
-    unresolved: List[Issue]
-    iteration: int
-    tool_history: List[ToolCall]
-    patches: List[Patch]
-    validation_results: List[ValidationResult]
-```
-
-**Orchestrator loop (pseudocode):**
-
-```python
-while state.unresolved and state.iteration < max_iterations:
-    context = build_context(state)
-    response = claude.messages.create(
-        model="claude-sonnet-4-6",
-        tools=TOOL_DEFINITIONS,
-        messages=context
-    )
-    tool_call = parse_tool_call(response)
-    result = execute_tool(tool_call)
-    state = update_state(state, tool_call, result)
-    if validation_failed(result):
-        state.unresolved.append(tool_call.target_issue)
-        continue
-    state.issues_fixed.append(tool_call.target_issue)
-    state.iteration += 1
-```
-
-**Stopping conditions:**
-- `state.unresolved` is empty
-- An issue is returned with `fixable: false` by the agent's `propose_fix` tool
-- The same issue fails validation twice in a row (repeated failure)
-- `state.iteration >= max_iterations`
-- Claude API returns a non-retryable error
-
----
-
-### Tool Layer
-
-Each tool is a Python function with a defined interface exposed to Claude via the tool-calling schema. Claude does not execute tools — it requests them by name with arguments. The orchestrator executes the function and returns the result to Claude in the next message.
-
----
-
-#### `read_workflow_file`
-
-**Purpose:** Read a workflow file from disk and return its content.
-
-**Interface:**
-```python
-def read_workflow_file(path: str) -> ToolResult:
-    ...
-```
-
-**Returns:**
-```python
-ToolResult(
-    success=True,
-    data={"path": path, "content": raw_str, "line_count": n}
-)
-```
-
-**Failure cases:** File not found, permission denied. Returns `success=False` with error message.
-
----
-
-#### `validate_yaml_schema`
-
-**Purpose:** Validate a YAML string against the GitHub Actions workflow schema.
-
-**Interface:**
-```python
-def validate_yaml_schema(content: str) -> ToolResult:
-    ...
-```
-
-Fetches schema from local cache (loaded at startup from SchemaStore). Returns list of `jsonschema.ValidationError` objects serialized as dicts.
-
----
-
-#### `run_rule_checks`
-
-**Purpose:** Run the full deterministic rule engine against a YAML string and return the issue list.
-
-**Interface:**
-```python
-def run_rule_checks(content: str, path: str) -> ToolResult:
-    ...
-```
-
-Returns list of `Issue` objects. This allows the agent to re-check a file after applying a patch.
-
----
-
-#### `check_secret_exists`
-
-**Purpose:** Verify whether a named secret is configured in the repository.
-
-**Interface:**
-```python
-def check_secret_exists(secret_name: str) -> ToolResult:
-    ...
-```
-
-Calls the GitHub REST API:
-```
-GET /repos/{owner}/{repo}/actions/secrets/{secret_name}
-```
-
-Returns `{"exists": True/False}`. Note: the API confirms existence but never returns the secret value.
-
-**Retry behavior:** 1 retry on 5xx. No retry on 404 (secret does not exist).
-
----
-
-#### `propose_fix`
-
-**Purpose:** Ask Claude to draft a YAML patch for a specific issue. This is the only tool where Claude generates free-form content. All other tools are deterministic.
-
-**Interface:**
-```python
-def propose_fix(issue: Issue, file_content: str) -> ToolResult:
-    ...
-```
-
-Claude is prompted with:
-- The issue's `id`, `message`, and `location`
-- The relevant section of the workflow file (not the entire file, to minimize tokens)
-- A constraint to return only the patched YAML block, no explanation
-
-Returns:
-```python
-ToolResult(
-    success=True,
-    data={"patch": yaml_str, "confidence": 0.85, "explanation": str}
-)
-```
-
----
-
-#### `apply_fix`
-
-**Purpose:** Apply a patch to a workflow file and return the modified content.
-
-**Interface:**
-```python
-def apply_fix(path: str, patch: str, location: Location) -> ToolResult:
-    ...
-```
-
-Uses `ruamel.yaml` to apply the patch while preserving comments and formatting. Does not write to disk — returns the modified content string. The orchestrator passes this to the validation layer before any write occurs.
-
----
-
-#### `create_branch_and_pr`
-
-**Purpose:** Create a branch, commit all validated patches, and open a Pull Request.
-
-**Interface:**
-```python
-def create_branch_and_pr(
-    patches: List[Patch],
-    issues_fixed: List[Issue],
-    unresolved: List[Issue]
-) -> ToolResult:
-    ...
-```
-
-Calls:
-- `POST /repos/{owner}/{repo}/git/refs` — create branch
-- `PUT /repos/{owner}/{repo}/contents/{path}` — commit each file
-- `POST /repos/{owner}/{repo}/pulls` — open PR
-
-The PR body is generated from a structured template (see Output Layer).
-
----
-
-### GitHub Integration Layer
-
-CIRecon interacts with the GitHub REST API using `PyGithub` for most operations and raw `requests` calls for endpoints not covered by PyGithub (e.g. the Actions secrets existence check).
-
-Authentication uses the `GITHUB_TOKEN` provided automatically by GitHub Actions — no personal access token is required for same-repository operations.
-
-GraphQL is not used in v1. The REST API covers all required operations, and REST responses are simpler to handle in a tool-calling context where the agent reads return values.
-
----
-
-### Claude Integration
-
-**Why Claude is optional:**
-The rule engine covers the majority of real-world CI/CD issues. A meaningful portion of repositories will get full value from CIRecon with no API key configured. Making Claude optional means CIRecon is deployable anywhere, including security-sensitive environments where external API calls are not permitted.
-
-**Tool-calling workflow:**
-CIRecon uses the Anthropic tool-calling API (`tools` parameter in `messages.create`). Claude is given the tool schemas at the start of the loop and selects tools based on the current issue and state. The orchestrator never passes tool results back in a way that allows Claude to "see" secret values — only existence confirmations.
-
-**Context window management:**
-- Workflow files are truncated to the relevant section around the issue location (±50 lines)
-- Tool history is summarized after 5 iterations rather than passed in full
-- The full workflow file is never passed to `propose_fix`; only the relevant block is
-
-**Token optimization:**
-- Haiku-class models are used for classification tasks (is this issue fixable?)
-- Sonnet-class models are used for `propose_fix` only
-- The model is specified per tool call, not globally
-
-**Retry policy:**
-- 3 retries with exponential backoff on 429 (rate limit) and 5xx errors
-- No retry on 400 (bad request) — surface to orchestrator immediately
-
-**Cost optimization:**
-Because the rule engine handles all deterministic fixes for free, Claude is only called when the remaining issue list is non-empty after rule engine execution. In a well-maintained repository, CIRecon may run Claude zero times per execution.
+**All rules:**
+
+| Rule ID | Description | Severity | Auto-fixable | Confidence |
+|---|---|---|---|---|
+| `RULE_DEPRECATED_ACTION` | Action pinned to outdated version. SHA-pinned actions exempt. | MEDIUM | ✅ | 1.0 |
+| `RULE_MISSING_PERMISSIONS_BLOCK` | No top-level `permissions:` block | HIGH | ✅ | 0.9 |
+| `RULE_BROKEN_NEEDS_DEPENDENCY` | `needs:` references non-existent job ID | HIGH | ❌ | 1.0 |
+| `RULE_SECRET_IN_RUN_COMMAND` | `${{ secrets.* }}` in `run:` step — leaks to logs | CRITICAL | ❌ | 0.95 |
+| `RULE_PULL_REQUEST_TARGET_UNSAFE` | `pull_request_target` + checkout of PR ref — RCE vector | CRITICAL | ❌ | 0.9 |
+| `RULE_OVERLY_BROAD_PERMISSIONS` | `write-all` or 3+ write-level permission scopes | HIGH | ❌ | 1.0 |
+| `RULE_UNPINNED_THIRD_PARTY_ACTION` | Third-party action not pinned to 40-char SHA | HIGH | ❌ | 1.0 |
+
+**Why deterministic analysis precedes LLM reasoning:** The rule engine is free, fast, and 100% reproducible. Calling an LLM for `checkout@v2 → @v4` wastes tokens on a problem that pattern matching solves perfectly. The LLM is only invoked when the issue list contains items the rule engine cannot confidently fix.
 
 ---
 
 ### Fix Applier
 
-**Why `ruamel.yaml` instead of `PyYAML`:**
+Applies patches **in memory only** — never writes to disk until all fixes for a file have been accumulated and validated.
 
-PyYAML's `yaml.dump()` re-serializes the entire document from its internal representation. This destroys:
-- Inline comments (`# deploy only on main`)
-- Blank lines used for visual grouping
-- Anchor/alias formatting
-- Key ordering in mappings
+**Sequential accumulation (critical correctness requirement):**
+```python
+current_content = original_content
+for issue in file_issues:
+    patched = apply_fix(current_content, issue)
+    if validate_all(path, patched, original_issues).passed:
+        current_content = patched  # next fix builds on this
+```
 
-`ruamel.yaml` is a round-trip YAML parser — it preserves the original document structure and only modifies the nodes that were explicitly changed. This is non-negotiable for a tool that modifies other people's configuration files. A fix that removes all comments from a carefully maintained workflow file is not a fix.
+Each fix operates on the output of the previous fix, not the original. This prevents a class of corruption bugs where fix N overwrites the result of fix N-1.
 
-**Atomic writes:**
-Modified content is written to a temporary file first. If the write succeeds, the original file is replaced via `os.replace()` (atomic on POSIX). If any step fails, the original file is untouched.
+**`RULE_DEPRECATED_ACTION` fix:** Extracts the exact deprecated string from `issue.message` and uses `str.replace(old, new, 1)` — targeting only the specific occurrence, not all occurrences of the action name.
 
-**Rollback:**
-The original file content is stored in memory before any patch is applied. If the validation layer rejects the patched file, the original content is restored from memory. No git operations are performed until all patches have passed validation.
+**`RULE_MISSING_PERMISSIONS_BLOCK` fix:** Uses `re.sub(r"^(\s*)jobs:", ..., flags=re.MULTILINE)` to anchor the match to the start of a line, preventing false matches inside comments or string values.
+
+**Why not ruamel.yaml for fixes:** The fixes CIRecon applies are targeted string-level replacements. Using ruamel.yaml's round-trip parser adds complexity without meaningful benefit for these specific transformations. ruamel.yaml is reserved for future fixes that require structural YAML manipulation.
 
 ---
 
 ### Validation Layer
 
-After every patch — whether from the rule engine or the agent loop — the following checks run in sequence:
+Every proposed patch passes three checks before being accepted:
 
-1. `ruamel.yaml.load()` — confirms the patched file is syntactically valid YAML
-2. `jsonschema.validate()` — confirms conformance to the GitHub Actions schema
-3. `run_rule_checks()` — confirms no new issues were introduced by the patch
+1. **YAML syntax** — `yaml.safe_load()` confirms the patched file is valid YAML
+2. **Schema conformance** — `jsonschema.validate()` checks against the GitHub Actions JSON schema from SchemaStore. False positives on `if:` expressions (schema validator misinterprets them) are filtered out.
+3. **Rule engine re-check** — `run_all_checks()` runs again on the patched content. Only issues with `id+file` combinations not present in the original issue list count as "newly introduced."
 
-A patch is committed only if all three checks pass. If any check fails, the patch is discarded, the issue is moved back to `unresolved`, and the agent loop is informed (if active).
+A patch is committed only if all three pass. If any check fails, the patch is discarded and the issue is marked unresolved.
 
-This prevents a class of failure where the agent proposes a fix that resolves the target issue but introduces a different schema violation.
+---
+
+### Agent Loop
+
+When unresolved issues remain after the rule engine and `ANTHROPIC_API_KEY` is present, the agent loop activates.
+
+**State object:**
+```python
+@dataclass
+class AgentState:
+    scanned_files: list[str]
+    issues_found: list[Issue]
+    issues_fixed: list[Issue]
+    unresolved: list[Issue]
+    iteration: int
+    tool_history: list[dict]
+    patches: list[dict]
+    validation_results: list[ValidationResult]
+```
+
+**Tool definitions** (passed to Claude via tool-calling API):
+- `read_workflow_file` — reads a file from disk
+- `validate_yaml_schema` — validates content against schema
+- `run_rule_checks` — runs deterministic rules on content
+- `check_secret_exists` — checks GitHub API for secret existence
+- `propose_fix` — calls Claude to draft a YAML patch
+- `apply_fix` — applies a patch in memory
+- `create_branch_and_pr` — commits fixes and opens PR
+
+**Stopping conditions:** zero unresolved issues, non-fixable issue flagged, same tool+args called twice (infinite loop guard), max iterations reached, API error.
+
+**Configurable model:** The Claude model is configurable via the `claude-model` input (default: `claude-haiku-4-5-20251001`). Use Haiku for most cases (cheap, fast). Switch to Sonnet for complex security issues requiring deeper reasoning.
+
+---
+
+### GitHub Integration Layer
+
+CIRecon uses **git subprocess commands** (not the GitHub Contents API) for committing workflow file changes. The GitHub Contents API returns 403 when writing to `.github/workflows/` — a hard GitHub security policy. Git subprocess bypasses this:
+
+```python
+subprocess.run(["git", "config", "user.email", "cirecon@github.com"])
+subprocess.run(["git", "config", "user.name", "CIRecon"])
+subprocess.run(["git", "checkout", "-B", branch_name])
+subprocess.run(["git", "add", ".github/workflows/"])
+subprocess.run(["git", "commit", "-m", "[CIRecon] Auto-fix CI/CD workflow issues"])
+remote_url = f"https://x-access-token:{github_token}@github.com/{repo}.git"
+subprocess.run(["git", "push", remote_url, branch_name])
+```
+
+PR creation uses the GitHub REST API via `requests` after the branch is pushed.
+
+**CIRecon's own workflow file is never patched** — any file with `cirecon` in its path is filtered out of the patch list before committing, preventing CIRecon from corrupting its own trigger file.
 
 ---
 
 ### Output Layer
 
-**Branch naming:**
-```
-ci-recon/fix-{YYYYMMDD-HHMMSS}
-```
+**Primary output — Job Summary:**
 
-**PR title:**
-```
-[CIRecon] Auto-fix {n} CI/CD workflow issue(s)
-```
+Every run writes a markdown report to `$GITHUB_STEP_SUMMARY`:
 
-**PR body structure:**
-
-```markdown
-## CIRecon Report
-
-**Files scanned:** 3
-**Issues found:** 5
-**Issues auto-fixed:** 4
-**Requires human attention:** 1
-
----
-
-## Fixed Issues
-
-| File | Line | Issue | Fix Applied | Confidence |
-|------|------|-------|-------------|------------|
-| deploy.yml | 12 | DEPRECATED_ACTION_VERSION | Bumped actions/checkout@v2 → @v4 | 100% |
-| test.yml | 34 | MISSING_PERMISSIONS_BLOCK | Added read-only permissions block | 100% |
-
----
-
-## Unresolved Issues
-
-| File | Line | Issue | Reason |
-|------|------|-------|--------|
-| release.yml | 7 | SECRET_NOT_FOUND | Secret `NPM_TOKEN` is not configured in this repository |
-
----
-
-## Validation Status
-
-All applied fixes passed YAML syntax validation, schema validation, and rule-engine re-check.
-
----
-
-*Generated by [CIRecon](https://github.com/arpita-rathwa/CIRecon)*
+```python
+with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
+    f.write("## CIRecon Report\n\n")
+    f.write(f"**Files scanned:** {n} | **Issues found:** {n} | ...\n\n")
+    f.write("| File | Rule | Severity | Auto-fixable | Suggested Fix |\n")
+    # one row per issue
 ```
 
----
+This requires zero permissions, zero API calls, and is always visible on the Actions run page regardless of whether fixes were applied or PRs were opened.
 
-### Fallback / Graceful Degradation
+**Secondary output — Git commit + PR (when fixes applied):**
 
-| Failure Condition | Behavior |
-|---|---|
-| No `ANTHROPIC_API_KEY` configured | Rule engine runs; agent loop skipped; PR opened with deterministic fixes only |
-| Claude API unavailable (5xx after retries) | Log warning; skip agent loop; proceed with rule engine fixes; unresolved issues reported in PR |
-| GitHub API failure on PR creation | Write patched files to disk and log the diff; exit non-zero if `fail-on-unresolved: true` |
-| Patch fails validation | Discard patch; restore original file; mark issue as unresolved |
-| Max iterations reached | Commit validated patches collected so far; open PR with partial fixes; remaining issues listed |
-| Repeated validation failure on same issue | Mark issue as `non-fixable`; move to unresolved; do not retry |
+When auto-fixable issues exist, CIRecon writes fixed files atomically, commits via git subprocess, and opens a PR via the GitHub REST API.
+
+**Tertiary output — GitHub Gist (dashboard mode):**
+
+The dashboard markdown is published to a Gist via `PATCH /gists/{id}` (update) or `POST /gists` (create). The Gist URL is printed to the run log and also appended to the Job Summary.
 
 ---
 
@@ -642,438 +360,262 @@ All applied fixes passed YAML syntax validation, schema validation, and rule-eng
 
 ### Overview
 
-CIRecon maintains a persistent, repo-scoped memory store at `.github/cirecon/memory.json`. Every repo that installs CIRecon gets its own completely isolated memory file. When CIRecon runs on repo X, it reads only repo X's memory. When it runs on repo Y, it reads only repo Y's memory. There is no cross-repo contamination.
-
-This makes CIRecon adaptive — it gets more accurate the longer it runs on a repo, because it builds up a history of what was fixed, what was rejected, and what keeps recurring.
-
-### Memory Isolation Model
-
-```
-repo-x/
-└── .github/
-    └── cirecon/
-        └── memory.json   ← knows only about repo-x
-
-repo-y/
-└── .github/
-    └── cirecon/
-        └── memory.json   ← knows only about repo-y
-
-repo-z/
-└── .github/
-    └── cirecon/
-        └── memory.json   ← knows only about repo-z
-```
-
-Each memory file is version-controlled inside its own repo. You can inspect its full history with `git log`, see exactly when CIRecon first ran, and roll it back if needed.
+CIRecon maintains a persistent, repo-scoped memory store at `.github/cirecon/memory.json`. Every repo gets its own completely isolated memory file. Memory is only updated when a fix PR is merged — not on every scan run — eliminating git commit noise.
 
 ### Memory Schema
 
 ```json
 {
-  "repo": "arpita-rathwa/repo-x",
+  "repo": "owner/repo",
   "created_at": "2025-01-15T10:00:00Z",
   "last_run": "2025-07-01T14:32:00Z",
   "total_runs": 12,
-  "runs": [
+  "fixes": [
     {
-      "run_id": "abc123",
-      "timestamp": "2025-07-01T14:32:00Z",
-      "trigger": "push",
-      "branch": "main",
-      "files_scanned": ["deploy.yml", "test.yml"],
-      "issues_found": [
-        {
-          "id": "RULE_DEPRECATED_ACTION",
-          "file": "deploy.yml",
-          "line": 12,
-          "detail": "actions/checkout@v2"
-        }
-      ],
-      "issues_fixed": [
-        {
-          "id": "RULE_DEPRECATED_ACTION",
-          "file": "deploy.yml",
-          "fix_applied": "bumped to actions/checkout@v4",
-          "method": "rule_engine",
-          "pr": "https://github.com/.../pull/42"
-        }
-      ],
-      "unresolved": [],
+      "issue_id": "RULE_DEPRECATED_ACTION",
+      "file": "deploy.yml",
+      "fix_applied": "actions/checkout@v2 → @v4",
       "pr_url": "https://github.com/.../pull/42",
       "pr_status": "merged"
     }
   ],
-  "known_patterns": {
-    "deploy.yml": {
-      "recurring_issues": ["RULE_DEPRECATED_ACTION"],
-      "last_fixed": "2025-07-01",
-      "fix_accepted": true
-    }
-  },
+  "rejected_fixes": ["RULE_MISSING_PERMISSIONS_BLOCK"],
+  "known_secrets": ["ANTHROPIC_API_KEY", "GITHUB_TOKEN"],
   "repo_preferences": {
-    "preferred_runner": "ubuntu-latest",
-    "always_needs_permissions": true,
-    "known_secrets": ["ANTHROPIC_API_KEY", "GITHUB_TOKEN"]
-  },
-  "rejected_fixes": [
-    {
-      "issue_id": "RULE_MISSING_PERMISSIONS_BLOCK",
-      "file": "release.yml",
-      "rejected_at": "2025-06-20",
-      "pr": "https://github.com/.../pull/38",
-      "reason": "PR closed without merge"
-    }
-  ]
+    "preferred_runner": "ubuntu-latest"
+  }
 }
 ```
 
-### How Memory Is Used During a Run
+### Merge-triggered updates
 
-**Step 1 — Load at startup:**
-```python
-memory = MemoryStore.load(".github/cirecon/memory.json")
-# returns empty MemoryContext if file doesn't exist (first run)
+```
+push → CIRecon scans → opens fix PR (no memory write)
+                              ↓
+              human reviews + merges PR
+                              ↓
+      pull_request closed + merged: true event
+                              ↓
+      CIRecon updates memory.json (one commit, meaningful)
 ```
 
-**Step 2 — Inform the rule engine:**
-- If an issue was previously fixed and the PR was merged → apply the same fix immediately with high confidence, no Claude call needed
-- If a fix was previously proposed but the PR was closed/rejected → do not auto-apply it again; flag it for human review instead
-- If an issue has recurred 3+ times without being fixed → escalate its severity
+### Why in-repo JSON
 
-**Step 3 — Inform the agent loop:**
-- Pass `memory.known_patterns` and `memory.repo_preferences` into the agent's context
-- Agent knows which secrets actually exist in this repo (from past `check_secret_exists` calls), reducing redundant API calls
-- Agent knows the repo's preferred runner label, so it doesn't suggest mismatched `runs-on` values
-
-**Step 4 — Update at end of run:**
-```python
-memory.append_run(current_run_result)
-memory.update_patterns(issues_found, issues_fixed)
-memory.update_pr_status(pr_url)  # checks if previous PRs were merged
-memory.save(".github/cirecon/memory.json")
-```
-
-**Step 5 — Commit memory as part of the PR:**
-The updated `memory.json` is included in the same branch and PR as the workflow fixes. This means the memory update is also subject to human review and only takes effect after the PR is merged.
-
-### PR Status Tracking
-
-CIRecon checks the status of previously opened PRs at the start of each run:
-
-```python
-for past_run in memory.runs:
-    if past_run.pr_url:
-        status = github_api.get_pr_status(past_run.pr_url)
-        past_run.pr_status = status  # "open", "merged", "closed"
-```
-
-This is how CIRecon learns whether its fixes were accepted:
-- `merged` → fix was good, apply same pattern confidently in future
-- `closed` (without merge) → fix was rejected, do not re-suggest automatically
-- `open` → fix is pending review, note it in the current run's PR to avoid duplicate PRs
-
-### First Run Behaviour
-
-On the very first run in a repo, `.github/cirecon/memory.json` does not exist. CIRecon initialises an empty `MemoryContext` and proceeds normally. At the end of the run, it creates `memory.json` for the first time and commits it alongside the fixes.
-
-### Why Store Memory in the Repo (Not Externally)
-
-| Approach | Pros | Cons |
-|---|---|---|
-| In-repo JSON file (chosen) | Zero infrastructure, version-controlled, isolated per repo, human-readable, no expiry, no size limits | One commit per merged fix PR |
-| External database | Centralised, queryable across repos | Requires infrastructure, auth, cost, privacy concerns |
-| GitHub Actions cache | No repo commit needed | Expires after 7 days, not version-controlled, can be evicted |
-| GitHub repo variables | Built-in, no extra file | 48KB size limit, not version-controlled, not human-readable |
-
-In-repo JSON with merge-triggered updates is the only approach that is fully auditable, requires zero configuration, has no expiry, no size limits, and zero external infrastructure — while also producing zero noise commits.
+In-repo JSON is the only approach requiring zero external infrastructure, fully auditable via git history, isolated per repo by definition, and with no expiry or size limits. The one commit per merged PR is a meaningful, reviewable record of accepted fixes — not noise.
 
 ---
 
-### Solving the Commit Noise Problem
+## 5. Dashboard Mode
 
-The naive approach — committing `memory.json` on every CIRecon scan — pollutes git history with meaningless commits. CIRecon avoids this entirely by only updating memory when a fix PR is merged, not on every run.
+### Overview
 
-```
-push event → CIRecon scans → opens fix PR
-                                    ↓
-                    human reviews + merges PR
-                                    ↓
-         pull_request closed + merged: true event fires
-                                    ↓
-         CIRecon updates memory.json (one commit, meaningful)
-```
+Dashboard mode scans multiple repositories in a single run and publishes a health score report. It is designed for platform teams or individual developers who want a weekly overview of CI/CD health across all their repos.
 
-This means:
-- Scans that find no issues → zero commits
-- Scans that open a PR but it gets rejected → zero commits
-- Scans whose PR gets merged → exactly one memory commit recording the accepted fix
-
-The memory commit only happens when a human confirmed the fix was correct. This is also the right semantic for learning — CIRecon should only remember fixes that were accepted, not every fix it attempted.
-
-**Implementation:** CIRecon listens to the `pull_request: [closed]` event in addition to `push` and `pull_request: [opened]`. When a PR is closed with `merged: true` and the PR was opened by CIRecon, it triggers a memory update:
-
-```yaml
-on:
-  push:
-    paths:
-      - '.github/workflows/**'
-  pull_request:
-    types: [closed]
-```
+### org_scanner.py
 
 ```python
-if event == "pull_request" and payload["merged"] == True:
-    if payload["user"]["login"] == "github-actions[bot]":
-        memory.record_merged_fix(payload["pull_request"])
-        memory.save_and_commit()
+@dataclass
+class RepoReport:
+    repo: str
+    files_scanned: int
+    issues: list[Issue]
+    health_score: int   # 0–100
+    scanned_at: str
 ```
 
-No `memory-backend` input, no user configuration, no decision to make. It just works.
+**Health score calculation:**
+- Start at 100
+- CRITICAL issue: -20
+- HIGH issue: -10
+- MEDIUM issue: -5
+- LOW issue: -2
+- Minimum: 0
+
+**Scanning process:**
+1. `git clone --depth 1 https://x-access-token:{token}@github.com/{repo}.git {tmpdir}`
+2. `discover_workflow_files(tmpdir)` — find all workflow YAMLs
+3. `run_all_checks(path, content)` — run all 7 rules
+4. Calculate health score from issue list
+5. Clean up temp directory
+
+### dashboard.py
+
+Generates a markdown report and publishes to a GitHub Gist.
+
+**Update existing Gist:** `PATCH /gists/{gist_id}` — used on recurring scheduled runs so the same Gist URL stays stable.
+
+**Create new Gist:** `POST /gists` — used on first run. The returned Gist ID should be stored as a repo variable (`CIRECON_GIST_ID`) for subsequent runs.
 
 ---
 
-## 5. End-to-End Data Flow
+## 6. End-to-End Data Flow
 
-**Control flow** is shown with `→`. **Data flow** is shown with `⇒`.
+**Scan mode:**
 
 ```
-1.  GitHub push event (workflow file modified)
-        → GitHub triggers CIRecon action
+1.  GitHub push event → CIRecon action starts
+2.  Memory Layer: load .github/cirecon/memory.json
+3.  Input Layer: discover all .github/workflows/*.yml
+4.  Rule Engine: run 7 rules → List[Issue] with auto_fixable flags
+5.  Fix Applier: for each file, accumulate fixes sequentially in memory
+6.  Validation Layer: 3-stage check per patch → accept or discard
+7.  Agent Loop (if API key + unresolved): Claude tool-calling → more fixes
+8.  Output Layer:
+    a. Write Job Summary to $GITHUB_STEP_SUMMARY (always)
+    b. If patches: write files atomically → git commit → push → open PR
+9.  Exit 0 (or 1 if fail-on-unresolved=true and issues remain)
+```
 
-2.  Docker container starts
-        → action.yml entry point: python -m cirecon.main
-        ⇒ inputs loaded: api key, max_iterations, auto_fix, severity_threshold
+**Dashboard mode:**
 
-3.  Memory Layer loads
-        → checks for .github/cirecon/memory.json
-        → if exists: load MemoryContext (past runs, patterns, rejected fixes, known secrets)
-        → if not exists: initialise empty MemoryContext (first run)
-        → check status of previously opened PRs via GitHub API
-        ⇒ MemoryContext object available to all subsequent layers
-
-4.  Input Layer executes
-        → reads all .github/workflows/*.yml
-        → fetches GitHub Actions schema from SchemaStore (or local cache)
-        → retrieves CI failure log from triggering run (if available)
-        → fetches list of configured secrets from GitHub API
-        ⇒ List[WorkflowFile] produced
-
-5.  Rule Engine executes against each WorkflowFile
-        → 16 rule functions run in parallel per file
-        → consults MemoryContext: skip previously rejected fixes
-        → consults MemoryContext: escalate recurring issues
-        ⇒ List[Issue] produced, each with auto_fixable flag
-
-6.  Decision point A: was this exact fix merged before?
-        YES → apply same fix immediately with high confidence, skip Claude
-        NO  → proceed normally
-
-7.  Decision point B: are there any auto_fixable issues?
-        YES → Fix Applier applies deterministic patches
-              → Validation Layer checks each patch
-              → valid patches accumulated
-        NO  → proceed
-
-8.  Decision point C: are there unresolved issues AND is an API key present?
-        YES → Agent Loop initializes AgentState (includes MemoryContext)
-              → Orchestrator builds context from unresolved issues + memory
-              → Claude API called with tool schemas
-              → Claude selects a tool and provides arguments
-              → Orchestrator executes the tool
-              → Result returned to Claude
-              → Claude selects next tool or signals completion
-              → Validation Layer checks each proposed patch
-              → Loop continues until stopping condition
-        NO  → proceed to output
-
-9.  Output Layer executes
-        → All validated patches written to files
-        → Branch created via GitHub API
-        → Files committed to branch
-        → PR opened with structured report body
-
-10. Memory Layer updates
-        → append current run results to memory.json
-        → update known_patterns with recurring issues
-        → update repo_preferences from observed behaviour
-        → record rejected fixes if any past PRs were closed without merge
-        → commit updated memory.json to same branch as fixes
-
-11. Action exits
-        → exit 0 if auto_fix succeeded or no issues found
-        → exit 1 if fail-on-unresolved: true and issues remain
+```
+1.  Scheduled/manual trigger → CIRecon action starts (mode=dashboard)
+2.  org_scanner: for each repo in REPOS list:
+    a. git clone --depth 1
+    b. discover_workflow_files
+    c. run_all_checks → issues
+    d. calculate health score
+    e. clean up temp dir
+3.  dashboard: generate markdown from RepoReport list
+4.  dashboard: publish to GitHub Gist (update or create)
+5.  Output Layer: write dashboard to Job Summary
+6.  Print Gist URL to run log
 ```
 
 ---
 
-## 5. Technology Stack
+## 7. Technology Stack
 
 | Component | Technology | Why |
 |---|---|---|
-| Language | Python 3.11+ | Match clause syntax for tool dispatch; standard ML/DevOps ecosystem |
-| LLM SDK | `anthropic` Python SDK | Native tool-calling support; streaming; typed responses |
-| YAML parsing (analysis) | `PyYAML` | Fast, standard; sufficient for read-only parsing |
-| YAML parsing (fix application) | `ruamel.yaml` | Round-trip parsing preserves comments, ordering, formatting |
-| Schema validation | `jsonschema` | Official JSON Schema draft-07 support; used by SchemaStore |
-| GitHub API client | `PyGithub` | Typed wrapper around REST API; handles auth and pagination |
-| Action packaging | Docker container action | Reproducible environment; no runner dependency |
-| Testing | `pytest` + `pytest-mock` | Industry standard; easy fixture-based YAML testing |
-| CI for CIRecon itself | GitHub Actions | Dogfoods its own tooling |
-| Workflow schema | SchemaStore `github-workflow.json` | Authoritative, community-maintained, regularly updated |
-| Console output | `rich` | Structured log output in GitHub Actions runner logs |
-| Data validation | `pydantic` | Type-safe state objects, tool return schemas, memory schema |
-| Memory store | In-repo JSON file | Zero infrastructure, version-controlled, repo-isolated, human-readable, updated only on PR merge |
+| Language | Python 3.11+ | Match clause syntax; standard ML/DevOps ecosystem |
+| LLM SDK | `requests` (raw HTTP) | Full control over API calls; no SDK dependency |
+| YAML parsing | `PyYAML` | Fast, standard; sufficient for read-only parsing and fix application |
+| Schema validation | `jsonschema` | Official JSON Schema draft-07 support |
+| GitHub API client | `PyGithub` + `requests` | PyGithub for PR creation; raw requests for secrets check |
+| Git operations | `subprocess` | Only approach that bypasses GitHub's Contents API restriction on workflow files |
+| Action packaging | Docker container | Reproducible environment regardless of runner type |
+| Testing | `pytest` + `unittest.mock` | Industry standard; mock-based isolation of all external calls |
+| Coverage | `pytest-cov` | Enforced minimum 80% threshold in CI |
+| Linting | `ruff` | Fast, modern Python linter |
+| CI for CIRecon | GitHub Actions | Dogfoods its own tooling |
+| Workflow schema | SchemaStore `github-workflow.json` | Authoritative, community-maintained |
+| Memory store | In-repo JSON | Zero infrastructure, version-controlled, repo-isolated |
+| Dashboard store | GitHub Gist | Zero infrastructure, shareable, updatable via API |
 
 ---
 
-## 6. Design Decisions and Tradeoffs
+## 8. Design Decisions and Tradeoffs
 
-**Rule engine before LLM:**
-The rule engine is free, fast, deterministic, and testable. Running the LLM first would burn tokens on problems that static analysis already handles perfectly. The rule engine also produces structured `Issue` objects that give the agent loop precise, grounded context when it does run.
+**Job Summary as primary output over PR:**
+The GitHub Contents API returns 403 for workflow files regardless of token permissions — a hard GitHub security policy. Rather than fighting this with git subprocess complexity for every run, Job Summary was adopted as the primary output. It requires zero permissions, always works, and is immediately visible on the Actions run page. PRs remain available for when auto-fixes are applied, using git subprocess to bypass the Contents API restriction.
 
-**LLM only as fallback:**
-Not all CI/CD issues require language model reasoning. Most require pattern matching. Defaulting to the LLM for everything would make CIRecon expensive to run and dependent on a paid API for basic functionality. The BYO key model requires that rule-engine-only mode be genuinely useful.
+**Git subprocess over Contents API:**
+The Contents API cannot write to `.github/workflows/`. Git subprocess can. The tradeoff is that subprocess calls are harder to test (require mocking) and less portable than API calls, but this is the only reliable approach for workflow file modification.
 
-**BYO API key:**
-CIRecon has zero operating cost by design. The BYO key model means CIRecon can scale to any number of users without infrastructure. It also keeps the security model simple: API keys never leave the user's GitHub Secrets.
+**Seven rules over comprehensive coverage:**
+Seven carefully chosen rules covering the most common and most dangerous workflow issues provide more value than a larger set of marginal rules. Each rule is independently testable, has clear fix semantics, and addresses a documented real-world failure mode.
 
-**Docker container action vs composite action:**
-Composite actions inherit the runner environment. Python version, pip, and system library differences across runners have caused subtle failures in other Python-based actions. Docker eliminates this class of problem entirely. The startup overhead (~10–15 seconds for image pull) is acceptable given that CI/CD debugging typically costs much more time.
+**Security rules as non-auto-fixable:**
+Security misconfigurations (`RULE_SECRET_IN_RUN_COMMAND`, `RULE_PULL_REQUEST_TARGET_UNSAFE`) are flagged but not auto-fixed. Auto-fixing security issues without human review is itself a security risk — the correct remediation depends on intent, which CIRecon cannot infer.
 
-**`ruamel.yaml` vs `PyYAML` for fixes:**
-PyYAML is used for analysis because it is faster and its output does not matter (we discard it). `ruamel.yaml` is used for fix application because its output is what gets committed. Preserving the user's comments and formatting is a UX requirement, not a preference.
+**Haiku as default Claude model:**
+Claude Haiku is ~20x cheaper than Sonnet with acceptable quality for the structured YAML repair tasks CIRecon uses it for. Users who need higher-quality fixes for complex issues can switch to Sonnet via the `claude-model` input.
 
-**REST API vs GraphQL:**
-GraphQL would reduce round trips for some operations (e.g. fetching file content + metadata in one query). However, GraphQL responses are harder to handle in a tool-calling context where Claude reads the return value. The predictability and simplicity of REST responses outweigh the efficiency gain in v1.
-
-**Tool-calling vs single-prompt repair:**
-A single prompt asking the model to fix all issues at once produces unverified output. Tool-calling forces the model to take one action at a time, which allows the orchestrator to validate each step, reject bad patches, and update state incrementally. This is more reliable at the cost of more API calls.
-
-**Iterative loop vs one-shot:**
-One-shot is faster and cheaper but cannot recover from a bad patch. The iterative loop with a validation gate after each step means a failed fix does not corrupt the workflow file. The max iteration cap prevents runaway costs.
-
-**Deterministic validation before commit:**
-A patch that introduces a schema violation is worse than no patch. The validation gate is a hard requirement, not a nice-to-have. It is the only mechanism that prevents CIRecon from making a user's CI/CD situation worse.
+**Dashboard via Gist over GitHub Pages:**
+Gist requires no repo configuration, no Pages setup, and works for private repos. The single Gist URL is stable across updates (via PATCH). GitHub Pages would require a dedicated repo and Pages configuration — friction that prevents adoption.
 
 ---
 
-## 7. Security
+## 9. Security
 
-**Least privilege permissions:**
-CIRecon requests only the permissions it needs: `contents: write` (to commit fixes), `pull-requests: write` (to open PRs), `actions: read` (to read failure logs), `secrets: read` (to check secret existence). It does not request `admin` or `org` level permissions.
+**Least privilege:** CIRecon requests only `contents: write` and `pull-requests: write`. No admin or org-level permissions.
 
-**GitHub Secrets:**
-The Anthropic API key is stored as a GitHub Secret and passed to the action as an environment variable. It is never logged, never embedded in the PR body, and never passed to Claude as part of a prompt.
+**GitHub Secrets:** All API keys are passed as GitHub Secrets and never logged, never embedded in output, never passed to Claude as raw strings.
 
-**API key isolation:**
-The API key is read once at startup and used only for Anthropic API calls. It is not stored in any file, not included in error messages, and not accessible to tool functions except `propose_fix`, which uses the pre-initialized SDK client, not the raw key string.
+**Prompt injection mitigation:** CIRecon passes structured, parsed issue fields to Claude — not raw workflow file content. Free-form YAML content is only passed in `propose_fix`, where Claude is constrained to output only a YAML block.
 
-**Prompt injection considerations:**
-Workflow YAML files could theoretically contain content designed to manipulate the agent's behavior (e.g. a comment saying "ignore all previous instructions"). CIRecon mitigates this by passing only structured, parsed fields to Claude — the issue's `id`, `severity`, and `location` — not arbitrary user-authored strings. Free-form YAML content is passed only to `propose_fix`, where the model is constrained to output only a YAML block.
+**Self-exclusion:** CIRecon never patches its own trigger workflow file (`cirecon.yml` is filtered from all patch lists before committing).
 
-**Branch isolation:**
-All fixes are committed to a new branch. The main/default branch is never touched directly. This ensures that a bad fix cannot break the repository's primary branch before a human reviews it.
+**Validation before commit:** Every patch passes a 3-stage validation gate. A patch that introduces a new issue is rejected and the original file is restored from memory — no broken YAML ever lands.
 
-**No source code retention:**
-CIRecon does not send application code to any external service. Only workflow YAML files (and only the relevant sections) are sent to the Claude API.
+**No source code retention:** CIRecon does not send application code to any external service. Only workflow YAML sections are sent to Claude API.
 
-**Immutable audit trail:**
-Every fix is recorded in the PR body with the issue ID, the rule or tool that generated it, the confidence score, and the diff. This audit trail cannot be modified after the PR is opened.
+**Git authentication:** The GitHub token is used only for the git push remote URL and is never written to disk or logged.
 
 ---
 
-## 8. Scalability
+## 10. Scalability
 
-**Large repositories:**
-CIRecon processes only `.github/workflows/*.yml` files, not the entire repository. Even large monorepos typically have fewer than 20 workflow files. Processing time scales with the number and complexity of workflow files, not repository size.
+**Large repositories:** CIRecon processes only `.github/workflows/` files, not the full repository. Even large monorepos typically have fewer than 20 workflow files.
 
-**Multiple workflow files:**
-Rule engine checks run in parallel across files using Python's `concurrent.futures.ThreadPoolExecutor`. The agent loop processes issues sequentially (by design — each fix may affect subsequent checks).
+**Dashboard mode:** Repos are scanned sequentially to avoid GitHub API rate limits. Each clone is a shallow clone (`--depth 1`) to minimise bandwidth and time. Temp directories are cleaned up after each repo scan.
 
-**Incremental scanning:**
-When triggered by a PR event, CIRecon can optionally scan only the workflow files changed in the PR rather than all workflow files. This is controlled by the `scan-changed-only` input.
-
-**Caching:**
-The GitHub Actions JSON schema is fetched once per run and cached in memory. Future versions may cache it to disk between runs using GitHub Actions cache.
-
-**Rate limiting:**
-GitHub API calls are wrapped with retry logic and backoff. CIRecon respects the `X-RateLimit-Remaining` header and pauses if approaching the limit. Claude API calls use exponential backoff on 429 responses.
-
-**Claude token limits:**
-Workflow files are rarely large enough to approach Claude's context window limits. The truncation strategy (±50 lines around the issue location) ensures that even pathologically large workflow files do not cause context overflow.
+**Claude token limits:** Only the relevant file section (±50 lines around the issue location) is sent to `propose_fix`, not the full file. Tool history is summarized after 5 iterations to prevent context overflow.
 
 **Performance expectations:**
-- Rule engine only (no API key): ~2–5 seconds for a typical repository
-- Rule engine + agent loop: ~15–60 seconds depending on number of unresolved issues and Claude API latency
+- Rule engine only: 2–5 seconds per repository
+- With agent loop: 15–60 seconds depending on unresolved issue count and Claude API latency
+- Dashboard mode: ~10–30 seconds per repository scanned
 
 ---
 
-## 9. Known Limitations
+## 11. Known Limitations
 
-**Cannot infer business logic:**
-CIRecon validates structural and syntactic correctness. It cannot determine whether a workflow does the right thing for a given business process. A structurally valid workflow that deploys to the wrong environment is out of scope.
+**Cannot guarantee semantic correctness:** CIRecon validates structure, not intent. A structurally valid workflow that deploys to the wrong environment is out of scope.
 
-**Cannot repair broken third-party actions:**
-If an action referenced in `uses:` has been deleted from the GitHub Marketplace or its repository, CIRecon can detect the reference but cannot propose a valid replacement without knowing the user's intent.
+**Cannot repair broken third-party actions:** If a referenced action has been deleted from the Marketplace, CIRecon detects the reference but cannot propose a valid replacement.
 
-**Cannot create missing secrets:**
-When a `${{ secrets.X }}` reference is detected and the secret does not exist, CIRecon flags it and explains what needs to be created. It cannot create GitHub Secrets on the user's behalf — this requires credentials that CIRecon should never possess.
+**Cannot create missing secrets:** `RULE_SECRET_IN_RUN_COMMAND` can flag secret references in run commands but cannot create or rotate the secrets themselves.
 
-**Cannot guarantee semantic correctness:**
-A patch that passes YAML syntax validation, schema validation, and rule-engine re-check may still not produce the intended CI/CD behavior. CIRecon validates structure, not semantics.
+**Human approval always required:** CIRecon opens PRs. It never merges. Every fix requires human review.
 
-**Human approval always required before merge:**
-CIRecon opens a PR. It does not merge. Every fix requires a human to review the diff and approve the merge. This is a deliberate design constraint, not a limitation to be removed.
+**Agent loop is non-deterministic:** The rule engine produces identical output for identical input. The agent loop does not — two runs on the same unresolved issue may produce different patches.
 
-**Memory is only as good as PR feedback:**
-CIRecon learns from whether PRs are merged or closed. If a user closes a PR without merging it, CIRecon cannot distinguish between "fix was wrong" and "fix was correct but I handled it manually." Memory quality degrades in repos where PRs are closed for reasons unrelated to fix quality.
+**Memory quality depends on PR feedback:** If a PR is closed without merge for reasons unrelated to fix quality, CIRecon cannot distinguish this from rejection and may incorrectly record the fix as rejected.
 
-**Memory grows unboundedly:**
-`memory.json` accumulates a record of every merged fix indefinitely. In long-lived repos with many accepted fixes, this file may grow large over time. A pruning strategy (keep last N entries) is planned for v2 but not implemented in v1.
-
-**Agent loop is not deterministic:**
-The rule engine produces the same output for the same input, always. The agent loop does not. Two runs on the same unresolved issue may produce different patches. This is an inherent property of LLM-based systems.
-
-**Context window limits affect complex files:**
-Workflow files with deeply nested structures, many jobs, and long inline scripts may cause the relevant section extraction heuristic to miss important context for `propose_fix`.
+**Dashboard mode is sequential:** Repos are scanned one at a time. For large org-wide scans (20+ repos), this can take several minutes.
 
 ---
 
-## 10. Future Roadmap
+## 12. Future Roadmap
 
-**ML pipeline validation (v2):**
-- DVC pipeline YAML checks (`dvc.yaml`, `params.yaml` references)
-- GPU runner validation (checking that GPU-dependent steps use `runs-on: [self-hosted, gpu]` or equivalent)
-- Model artifact caching checks (ensuring `actions/cache` is configured for model weights)
-- Dataset download step ordering validation
+**More rules (v2):**
+- `RULE_MISSING_CHECKOUT_STEP` — job operates on files without checkout
+- `RULE_INVALID_RUNS_ON` — unrecognised runner label
+- `RULE_DUPLICATE_JOB_ID` — two jobs share an ID
+- `RULE_INVALID_MATRIX_SYNTAX` — malformed strategy matrix
 
-**Extended platform support (v3):**
-- GitLab CI (`.gitlab-ci.yml`) — different schema, same architectural approach
+**ML pipeline validation:**
+- DVC pipeline YAML checks
+- GPU runner validation
+- Model artifact caching checks
+
+**Cross-repo workflow drift detection:**
+- Define a "golden template" workflow
+- Flag repos that have drifted from the standard pattern
+
+**GitHub App (v3):**
+- Removes all token permission restrictions
+- Enables PR creation without git subprocess complexity
+- Enables org-wide installation without per-repo setup
+
+**Extended platform support:**
+- GitLab CI (`.gitlab-ci.yml`)
 - CircleCI (`.circleci/config.yml`)
 - Azure Pipelines (`azure-pipelines.yml`)
-- Bitbucket Pipelines
-
-**Kubernetes and deployment workflow checks:**
-- `kubectl apply` step validation
-- Helm chart reference checks
-- Environment variable propagation checks for Kubernetes secrets
 
 **Local CLI mode:**
-A `cirecon` CLI that runs the same analysis locally before push, without requiring a GitHub Actions runner.
-
-**VS Code extension:**
-Real-time workflow YAML linting using the CIRecon rule engine as a language server, surfacing issues as underlines in the editor.
-
-**Self-learning repair suggestions:**
-Aggregate anonymized (opt-in) fix patterns across repositories to improve rule confidence scores over time.
-
-**Web dashboard:**
-A read-only dashboard showing CIRecon run history, fix rates, and common issue patterns across an organization's repositories.
+```
+pip install cirecon
+cirecon scan .
+cirecon fix .
+cirecon dashboard --repos owner/repo1,owner/repo2
+```
 
 ---
 
-## 11. Mermaid Diagrams
+## 13. Mermaid Diagrams
 
 ### Overall Architecture
 
@@ -1081,69 +623,85 @@ A read-only dashboard showing CIRecon run history, fix rates, and common issue p
 flowchart LR
     A[GitHub Push / PR Event] --> B[GitHub Actions Runner]
     B --> C[CIRecon Action\nDocker Container]
-    C --> MEM[Memory Layer\nLoad memory.json\nPast fixes + patterns]
-    MEM --> D[Input Layer\nRead workflows\nFetch schema\nFetch logs]
-    D --> E[Rule Engine\nDeterministic checks\n16 rules\nConsults memory]
-    E --> F{All issues\nauto-fixable?}
-    F -- Yes --> G[Fix Applier\nruamel.yaml\nAtomic writes]
-    F -- No --> H[Agent Loop\nOrchestrator\nState + MemoryContext]
-    H --> I[Claude API\nTool-calling\nclaude-sonnet-4-6]
-    I --> J[Tool Layer]
-    J --> K[GitHub API\nSecrets\nFile reads]
-    J --> I
-    H --> G
-    G --> L[Validation Layer\nParse + Schema\n+ Rule re-check]
-    L -- Pass --> M[Output Layer\nCreate branch\nCommit\nOpen PR]
-    L -- Fail --> N[Discard patch\nMark unresolved]
-    N --> H
-    M --> MEMU[Memory Update\nAppend run results\nCommit memory.json]
-    MEMU --> O[Pull Request\nwith audit trail\n+ updated memory]
+    C --> D{Mode?}
+    D -- scan --> E[Memory Layer\nLoad memory.json]
+    D -- dashboard --> F[org_scanner.py\nClone + scan repos]
+    E --> G[Input Layer\nDiscover YAMLs]
+    G --> H[Rule Engine\n7 rules]
+    H --> I[Fix Applier\nIn-memory accumulation]
+    I --> J[Validation Layer\n3-stage gate]
+    J --> K[Agent Loop\nClaude API optional]
+    K --> L[Output Layer]
+    F --> M[dashboard.py\nGenerate + publish Gist]
+    M --> L
+    L --> N[Job Summary\nalways]
+    L --> O[Git commit + PR\nwhen fixes applied]
+    L --> P[GitHub Gist\ndashboard mode]
 ```
 
 ---
 
-### Agent Loop
+### Agent Loop State Machine
 
 ```mermaid
-flowchart TD
-    A[Initialize AgentState\nUnresolved issues queue] --> B[Build context\nfrom current state]
-    B --> C[Call Claude API\nwith tool schemas]
-    C --> D{Claude selects tool}
-    D --> E[read_workflow_file]
-    D --> F[validate_yaml_schema]
-    D --> G[run_rule_checks]
-    D --> H[check_secret_exists]
-    D --> I[propose_fix]
-    D --> J[apply_fix]
-    E & F & G & H & I & J --> K[Execute tool\nin orchestrator]
-    K --> L[Update AgentState]
-    L --> M{Stopping condition?}
-    M -- No issues remain --> N[Exit loop\nAll fixed]
-    M -- Non-fixable issue --> O[Exit loop\nMark unresolved]
-    M -- Max iterations --> P[Exit loop\nPartial fix]
-    M -- Validation failed twice --> Q[Exit loop\nDiscard issue]
-    M -- Continue --> B
+stateDiagram-v2
+    [*] --> IDLE
+    IDLE --> LOADING: unresolved issues exist + API key present
+    LOADING --> REASONING: context built
+    REASONING --> TOOL_EXECUTING: Claude selects tool
+    TOOL_EXECUTING --> VALIDATING: tool returns result
+    VALIDATING --> UPDATING: patch accepted
+    VALIDATING --> REASONING: patch rejected, retry
+    UPDATING --> REASONING: issues remain
+    UPDATING --> DONE: no issues remain
+    REASONING --> DONE: max iterations reached
+    REASONING --> DONE: same tool called twice
+    REASONING --> FAILED: API error
+    DONE --> [*]
+    FAILED --> [*]
 ```
 
 ---
 
-### Data Flow
+### Data Flow — Scan Mode
 
 ```mermaid
 flowchart LR
-    A[.github/workflows/*.yml] --> B[WorkflowFile objects]
+    A[workflow YAML files] --> B[WorkflowFile objects]
     C[SchemaStore JSON] --> B
-    D[CI failure logs] --> B
-    E[Repo secrets list] --> B
-    B --> F[Issue list\nwith auto_fixable flags]
-    F --> G[Deterministic patches\nfrom rule engine]
-    F --> H[Unresolved issues\nto agent loop]
-    H --> I[Tool calls\nand results]
-    I --> J[Proposed patches\nfrom Claude]
-    G & J --> K[Validation Layer]
-    K --> L[Validated patches]
-    K --> M[Rejected patches\nback to unresolved]
-    L --> N[Branch + Commits\n+ Pull Request]
+    D[memory.json] --> E[MemoryContext]
+    B --> F[Issue list\n7 rules]
+    E --> F
+    F --> G[In-memory patches\naccumulated per file]
+    G --> H[Validation Layer]
+    H --> I[Validated patches]
+    H --> J[Rejected patches\nmark unresolved]
+    I --> K[Job Summary\n$GITHUB_STEP_SUMMARY]
+    I --> L[Git commit\nsubprocess]
+    L --> M[Pull Request\nGitHub API]
+    J --> N[Agent Loop\nClaude optional]
+    N --> H
+```
+
+---
+
+### Data Flow — Dashboard Mode
+
+```mermaid
+flowchart TD
+    A[REPOS env var\ncomma-separated list] --> B[org_scanner.py]
+    B --> C[git clone depth=1\nper repo]
+    C --> D[discover_workflow_files]
+    D --> E[run_all_checks\n7 rules per file]
+    E --> F[RepoReport\nhealth score 0-100]
+    F --> G[dashboard.py\ngenerate markdown]
+    G --> H{gist-id provided?}
+    H -- yes --> I[PATCH /gists/id\nupdate existing]
+    H -- no --> J[POST /gists\ncreate new]
+    I --> K[Gist URL]
+    J --> K
+    K --> L[Job Summary\nappend dashboard]
+    K --> M[Print URL to log]
 ```
 
 ---
@@ -1170,42 +728,17 @@ sequenceDiagram
     T->>O: {exists: false}
     O->>C: Tool result: secret not found
     C->>O: Tool call: propose_fix(issue, file_section)
-    O->>T: Execute propose_fix
-    T->>O: {patch: yaml_str, confidence: 0.82}
+    O->>T: Execute propose_fix → Claude API
+    T->>O: {patch: yaml_str, confidence: 0.85}
     O->>C: Tool result: patch proposed
-    C->>O: Tool call: apply_fix(path, patch, location)
-    O->>T: Execute apply_fix
-    T->>O: Modified file content
-    O->>V: Validate modified content
+    C->>O: Tool call: apply_fix(path, patch)
+    O->>T: Execute apply_fix in memory
+    T->>O: patched content
+    O->>V: Validate patched content
     V->>O: Validation passed
-    O->>C: Tool result: fix applied and validated
-    C->>O: Tool call: create_branch_and_pr(patches, summary)
-    O->>T: Execute create_branch_and_pr
-    T->>G: POST /git/refs (create branch)
-    T->>G: PUT /contents (commit files)
-    T->>G: POST /pulls (open PR)
-    G->>T: PR URL
-    T->>O: {pr_url: "https://github.com/..."}
-    O->>O: Loop complete
-```
-
-### Memory Lifecycle
-
-```mermaid
-flowchart TD
-    A[push event\nworkflow file modified] --> B[CIRecon scans repo]
-    B --> C{memory.json\nexists?}
-    C -- Yes --> D[Load MemoryContext\npast fixes + patterns]
-    C -- No first run --> E[Initialise empty\nMemoryContext]
-    D & E --> F[Rule engine + agent loop\nconsult MemoryContext]
-    F --> G[Open fix PR\nno memory commit yet]
-    G --> H{Human reviews PR}
-    H -- Merges PR --> I[pull_request closed\nmerged: true event]
-    H -- Closes without merge --> J[No memory update\nfix was rejected]
-    I --> K[CIRecon updates\nmemory.json]
-    K --> L[Commit memory.json\none meaningful commit]
-    L --> M[Memory reflects\nonly accepted fixes]
-    J --> N[Memory unchanged\nfix marked as rejected\nif re-encountered]
+    O->>C: Tool result: fix validated
+    C->>O: Signal: done
+    O->>O: Write files + git commit + open PR
 ```
 
 ---
