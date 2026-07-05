@@ -144,6 +144,10 @@ def create_branch_and_pr(
         branch_name = f"ci-recon/fix-{int(time.time())}"
 
         subprocess.run(
+            ["git", "config", "--global", "safe.directory", "*"],
+            check=True, capture_output=True,
+        )
+        subprocess.run(
             ["git", "config", "user.email", "cirecon@ci-recon.dev"],
             check=True, capture_output=True,
         )

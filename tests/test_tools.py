@@ -173,7 +173,8 @@ def test_create_branch_and_pr_success(mock_github, mock_subproc):
     assert result.data["pr_url"] == "https://github.com/test/repo/pull/42"
 
     config_calls = [c for c in mock_subproc.call_args_list if c[0][0][:2] == ["git", "config"]]
-    assert len(config_calls) == 2
+    assert len(config_calls) == 3
+    assert config_calls[0][0][0] == ["git", "config", "--global", "safe.directory", "*"]
 
     checkout_call = [c for c in mock_subproc.call_args_list if c[0][0][:2] == ["git", "checkout"]]
     assert len(checkout_call) == 1
