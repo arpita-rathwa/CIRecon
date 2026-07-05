@@ -39,7 +39,9 @@ def run():
     max_iterations = int(os.getenv("MAX_ITERATIONS", "10"))
     fail_on_unresolved = os.getenv("FAIL_ON_UNRESOLVED", "false").lower() == "true"
 
-    workspace = os.getenv("GITHUB_WORKSPACE") or "."
+    github_workspace = os.getenv("GITHUB_WORKSPACE")
+    is_docker = os.path.exists("/github/workspace")
+    workspace = github_workspace or ("/github/workspace" if is_docker else ".")
 
     memory = load_memory(workspace)
 
