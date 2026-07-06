@@ -155,10 +155,15 @@ def create_branch_and_pr(
             ["git", "config", "user.name", "CIRecon"],
             check=True, capture_output=True,
         )
-        subprocess.run(
+        result = subprocess.run(
             ["git", "checkout", "-B", branch_name],
-            check=True, capture_output=True,
+            capture_output=True, text=True,
         )
+        if result.returncode != 0:
+            print(f"Git checkout failed:")
+            print(f"STDOUT: {result.stdout}")
+            print(f"STDERR: {result.stderr}")
+            raise subprocess.CalledProcessError(result.returncode, result.args)
 
         for patch in patches:
             if not patch['path'].startswith('.github/workflows/'):
@@ -187,12 +192,25 @@ def create_branch_and_pr(
         print("DEBUG: Running git add .github/workflows/")
 
         subprocess.run(["git", "add", ".github/workflows/"], check=True, capture_output=True)
-        subprocess.run(
+        result = subprocess.run(
             ["git", "commit", "-m", "[CIRecon] Auto-fix CI/CD workflow issues"],
-            check=True, capture_output=True,
+            capture_output=True, text=True,
         )
+        if result.returncode != 0:
+            print(f"Git commit failed:")
+            print(f"STDOUT: {result.stdout}")
+            print(f"STDERR: {result.stderr}")
+            raise subprocess.CalledProcessError(result.returncode, result.args)
         remote_url = f"https://x-access-token:{github_token}@github.com/{repo}.git"
-        subprocess.run(["git", "push", remote_url, branch_name], check=True, capture_output=True)
+        result = subprocess.run(
+            ["git", "push", remote_url, branch_name],
+            capture_output=True, text=True,
+        )
+        if result.returncode != 0:
+            print(f"Git push failed:")
+            print(f"STDOUT: {result.stdout}")
+            print(f"STDERR: {result.stderr}")
+            raise subprocess.CalledProcessError(result.returncode, result.args)
 
         fixed_rows = "\n".join(
             f"| `{i['id']}` | {i.get('message', '')} | Fixed |"
