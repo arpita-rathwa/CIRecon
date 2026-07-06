@@ -202,6 +202,8 @@ def create_branch_and_pr(
             print(f"STDERR: {result.stderr}")
             raise subprocess.CalledProcessError(result.returncode, result.args)
         remote_url = f"https://x-access-token:{github_token}@github.com/{repo}.git"
+        token_prefix = github_token[:8] if github_token else "EMPTY"
+        print(f"DEBUG: Token prefix: {token_prefix}... length={len(github_token) if github_token else 0}", flush=True)
         result = subprocess.run(
             ["git", "push", remote_url, branch_name],
             capture_output=True, text=True,

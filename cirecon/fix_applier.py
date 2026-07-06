@@ -23,6 +23,9 @@ def apply_fix(content: str, issue: Issue) -> str:
             )
 
     if issue.id == "RULE_MISSING_PERMISSIONS_BLOCK":
+        if re.search(r"^permissions:", content, re.MULTILINE):
+            print("  already has top-level permissions — skipping fix")
+            return content
         permissions_block = "permissions:\n  contents: read\n\n"
         content = re.sub(
             r"^(\s*)jobs:",
