@@ -388,6 +388,206 @@ def check_unpinned_third_party_action(path: str, content: str) -> list[Issue]:
     return issues
 
 
+def check_fork_pr_secret_exposure(path: str, content: str) -> list[Issue]:
+    issues = []
+
+    try:
+        parsed = yaml.safe_load(content)
+    except yaml.YAMLError:
+        return issues
+
+    if not parsed:
+        return issues
+
+    on_value = parsed.get("on", parsed.get(True, {}))
+    if not isinstance(on_value, dict):
+        if isinstance(on_value, str):
+            triggers = [on_value]
+        elif isinstance(on_value, list):
+            triggers = on_value
+        else:
+            triggers = []
+        has_pr = any(isinstance(t, str) and t == "pull_request" for t in triggers)
+    else:
+        triggers = list(on_value.keys())
+        has_pr = "pull_request" in triggers
+
+    if not has_pr:
+        return issues
+
+    jobs = parsed.get("jobs")
+    if not isinstance(jobs, dict):
+        return issues
+
+    for job_name, job in jobs.items():
+        if not isinstance(job, dict):
+            continue
+        steps = job.get("steps") or []
+        for step in steps:
+            if not isinstance(step, dict):
+                continue
+
+            run_cmd = step.get("run", "")
+            if isinstance(run_cmd, str) and "${{ secrets." in run_cmd:
+                issues.append(Issue(
+                    id="RULE_FORK_PR_SECRET_EXPOSURE",
+                    severity=Severity.HIGH,
+                    message="Secrets are unavailable in pull_request workflows from forks — "
+                            "these will silently be empty strings, causing cryptic failures. "
+                            "Use pull_request_target with caution or environment protection rules.",
+                    location=Location(file=path, line=None, column=None),
+                    auto_fixable=False,
+                    confidence=0.95,
+                    suggested_fix=None
+                ))
+                continue
+
+            with_ = step.get("with", {}) or {}
+            if isinstance(with_, dict):
+                for val in with_.values():
+                    if isinstance(val, str) and "${{ secrets." in val:
+                        issues.append(Issue(
+                            id="RULE_FORK_PR_SECRET_EXPOSURE",
+                            severity=Severity.HIGH,
+                            message="Secrets are unavailable in pull_request workflows from forks — "
+                                    "these will silently be empty strings, causing cryptic failures. "
+                                    "Use pull_request_target with caution or environment protection rules.",
+                            location=Location(file=path, line=None, column=None),
+                            auto_fixable=False,
+                            confidence=0.95,
+                            suggested_fix=None
+                        ))
+                        break
+
+    return issues
+
+
+WRITE_ACTIONS_ON_FORK = {
+    "actions/create-release",
+    "softprops/action-gh-release",
+    "peaceiris/actions-gh-pages",
+}
+
+
+def check_write_step_on_fork_trigger(path: str, content: str) -> list[Issue]:
+    issues = []
+
+    try:
+        parsed = yaml.safe_load(content)
+    except yaml.YAMLError:
+        return issues
+
+    if not parsed:
+        return issues
+
+    on_value = parsed.get("on", parsed.get(True, {}))
+    if not isinstance(on_value, dict):
+        if isinstance(on_value, str):
+            triggers = [on_value]
+        elif isinstance(on_value, list):
+            triggers = on_value
+        else:
+            triggers = []
+        has_pr = any(isinstance(t, str) and t == "pull_request" for t in triggers)
+    else:
+        triggers = list(on_value.keys())
+        has_pr = "pull_request" in triggers
+
+    if not has_pr:
+        return issues
+
+    jobs = parsed.get("jobs")
+    if not isinstance(jobs, dict):
+        return issues
+
+    for job_name, job in jobs.items():
+        if not isinstance(job, dict):
+            continue
+        steps = job.get("steps") or []
+        for step in steps:
+            if not isinstance(step, dict):
+                continue
+
+            uses = step.get("uses", "")
+            if isinstance(uses, str):
+                action_name = uses.split("@")[0] if "@" in uses else uses
+                if action_name in WRITE_ACTIONS_ON_FORK:
+                    issues.append(Issue(
+                        id="RULE_WRITE_STEP_ON_FORK_TRIGGER",
+                        severity=Severity.HIGH,
+                        message="This step requires write token permissions but "
+                                "pull_request events from forks use a read-only token — "
+                                "this step will silently fail on fork PRs.",
+                        location=Location(file=path, line=None, column=None),
+                        auto_fixable=False,
+                        confidence=0.9,
+                        suggested_fix=None
+                    ))
+                    continue
+
+            run_cmd = step.get("run", "")
+            if isinstance(run_cmd, str) and "git push" in run_cmd:
+                issues.append(Issue(
+                    id="RULE_WRITE_STEP_ON_FORK_TRIGGER",
+                    severity=Severity.HIGH,
+                    message="This step requires write token permissions but "
+                            "pull_request events from forks use a read-only token — "
+                            "this step will silently fail on fork PRs.",
+                    location=Location(file=path, line=None, column=None),
+                    auto_fixable=False,
+                    confidence=0.9,
+                    suggested_fix=None
+                ))
+
+    return issues
+
+
+def check_ref_condition_on_multi_trigger(path: str, content: str) -> list[Issue]:
+    issues = []
+
+    try:
+        parsed = yaml.safe_load(content)
+    except yaml.YAMLError:
+        return issues
+
+    if not parsed:
+        return issues
+
+    on_value = parsed.get("on", parsed.get(True, {}))
+    if not isinstance(on_value, dict):
+        return issues
+    triggers = list(on_value.keys())
+    if "push" not in triggers or "pull_request" not in triggers:
+        return issues
+
+    jobs = parsed.get("jobs")
+    if not isinstance(jobs, dict):
+        return issues
+
+    for job_name, job in jobs.items():
+        if not isinstance(job, dict):
+            continue
+        steps = job.get("steps") or []
+        for step in steps:
+            if not isinstance(step, dict):
+                continue
+            if_cond = step.get("if", "")
+            if isinstance(if_cond, str) and "github.ref == 'refs/heads/" in if_cond:
+                issues.append(Issue(
+                    id="RULE_REF_CONDITION_MISMATCH",
+                    severity=Severity.MEDIUM,
+                    message="This if: condition references github.ref with a branch name — "
+                            "this is always false on pull_request events where ref is "
+                            "refs/pull/N/merge. This step silently skips on all PRs.",
+                    location=Location(file=path, line=None, column=None),
+                    auto_fixable=False,
+                    confidence=0.85,
+                    suggested_fix=None
+                ))
+
+    return issues
+
+
 def run_all_checks(path, content) -> list[Issue]:
     result = (
         check_deprecated_action_versions(path, content)
@@ -397,5 +597,8 @@ def run_all_checks(path, content) -> list[Issue]:
         + check_pull_request_target_unsafe(path, content)
         + check_overly_broad_permissions(path, content)
         + check_unpinned_third_party_action(path, content)
+        + check_fork_pr_secret_exposure(path, content)
+        + check_write_step_on_fork_trigger(path, content)
+        + check_ref_condition_on_multi_trigger(path, content)
     )
     return result

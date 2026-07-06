@@ -1,12 +1,9 @@
 import json
 import os
-import subprocess
-import time
 from dataclasses import dataclass
 from typing import Optional
 
 import requests
-from github import Github
 
 from cirecon.rule_engine import run_all_checks
 from cirecon.validator import validate_schema
@@ -129,122 +126,5 @@ def apply_fix_tool(path: str, patch: str) -> ToolResult:
             success=True,
             data={"path": path, "patched": patch},
         )
-    except Exception as e:
-        return ToolResult(success=False, data={}, error=str(e))
-
-
-def create_branch_and_pr(
-    patches: list,
-    issues_fixed: list,
-    unresolved: list,
-    github_token: str,
-    repo: str,
-) -> ToolResult:
-    try:
-        branch_name = f"ci-recon/fix-{int(time.time())}"
-
-        subprocess.run(
-            ["git", "config", "--global", "safe.directory", "*"],
-            check=True, capture_output=True,
-        )
-        subprocess.run(
-            ["git", "config", "user.email", "cirecon@ci-recon.dev"],
-            check=True, capture_output=True,
-        )
-        subprocess.run(
-            ["git", "config", "user.name", "CIRecon"],
-            check=True, capture_output=True,
-        )
-        result = subprocess.run(
-            ["git", "checkout", "-B", branch_name],
-            capture_output=True, text=True,
-        )
-        if result.returncode != 0:
-            print(f"Git checkout failed:")
-            print(f"STDOUT: {result.stdout}")
-            print(f"STDERR: {result.stderr}")
-            raise subprocess.CalledProcessError(result.returncode, result.args)
-
-        for patch in patches:
-            if not patch['path'].startswith('.github/workflows/'):
-                raise ValueError(f"CIRecon attempted to patch non-workflow file: {patch['path']}")
-
-        workflow_patches = [p for p in patches if p['path'].startswith('.github/workflows/')]
-
-        print(f"DEBUG: Files to commit: {[p['path'] for p in workflow_patches]}")
-        for patch in workflow_patches:
-            debug_msg = (
-                f"DEBUG: {patch['path']} — {len(patch['content'])} bytes "
-                f"— has jobs: {'jobs:' in patch['content']}"
-            )
-            print(debug_msg)
-
-        for patch in workflow_patches:
-            file_path = patch["path"]
-            content = patch["content"]
-            print(f"DEBUG: Writing {file_path} ({len(content)} bytes)")
-            print(f"DEBUG: First 200 chars: {content[:200]}")
-            print(f"DEBUG: Last 200 chars: {content[-200:]}")
-            print(f"DEBUG: Contains 'jobs:': {'jobs:' in content}")
-            with open(file_path, "w", encoding="utf-8") as f:
-                f.write(content)
-
-        print("DEBUG: Running git add .github/workflows/")
-
-        subprocess.run(["git", "add", ".github/workflows/"], check=True, capture_output=True)
-        result = subprocess.run(
-            ["git", "commit", "-m", "[CIRecon] Auto-fix CI/CD workflow issues"],
-            capture_output=True, text=True,
-        )
-        if result.returncode != 0:
-            print(f"Git commit failed:")
-            print(f"STDOUT: {result.stdout}")
-            print(f"STDERR: {result.stderr}")
-            raise subprocess.CalledProcessError(result.returncode, result.args)
-        remote_url = f"https://x-access-token:{github_token}@github.com/{repo}.git"
-        token_prefix = github_token[:8] if github_token else "EMPTY"
-        print(f"DEBUG: Token prefix: {token_prefix}... length={len(github_token) if github_token else 0}", flush=True)
-        result = subprocess.run(
-            ["git", "push", remote_url, branch_name],
-            capture_output=True, text=True,
-        )
-        if result.returncode != 0:
-            print(f"Git push failed:")
-            print(f"STDOUT: {result.stdout}")
-            print(f"STDERR: {result.stderr}")
-            raise subprocess.CalledProcessError(result.returncode, result.args)
-
-        fixed_rows = "\n".join(
-            f"| `{i['id']}` | {i.get('message', '')} | Fixed |"
-            for i in issues_fixed
-        )
-        unresolved_rows = "\n".join(
-            f"| `{i['id']}` | {i.get('message', '')} | Unresolved |"
-            for i in unresolved
-        )
-        body = f"""## CIRecon Automated Fix
-
-### Fixed Issues
-| Issue ID | Description | Status |
-|---|---|---|
-{fixed_rows}
-
-### Unresolved Issues
-| Issue ID | Description | Status |
-|---|---|---|
-{unresolved_rows if unresolved_rows else 'None — all issues resolved.'}
-"""
-
-        g = Github(github_token)
-        repo_obj = g.get_repo(repo)
-        default_branch = repo_obj.default_branch
-        title = "CIRecon: Automated workflow repairs"
-        pr = repo_obj.create_pull(
-            title=title,
-            body=body,
-            head=branch_name,
-            base=default_branch,
-        )
-        return ToolResult(success=True, data={"pr_url": pr.html_url})
     except Exception as e:
         return ToolResult(success=False, data={}, error=str(e))

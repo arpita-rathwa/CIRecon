@@ -37,8 +37,7 @@ def test_tool_definitions_has_all_tools():
     assert "check_secret_exists" in names
     assert "propose_fix" in names
     assert "apply_fix" in names
-    assert "create_pr" in names
-    assert len(names) == 7
+    assert len(names) == 6
 
 
 def test_build_context_includes_unresolved():
@@ -108,18 +107,6 @@ def test_dispatch_propose_fix(mock_propose):
     )
     assert result["success"] is True
     mock_propose.assert_called_once()
-
-
-@patch("cirecon.agent_loop.create_branch_and_pr")
-def test_dispatch_create_pr(mock_create_pr):
-    mock_create_pr.return_value.success = True
-    mock_create_pr.return_value.data = {"pr_url": "https://github.com/test/repo/pull/1"}
-
-    state = AgentState()
-    context = {"github_token": "tok", "repo": "test/repo", "state": state}
-    result = dispatch_tool("create_pr", {}, context)
-    assert result["success"] is True
-    mock_create_pr.assert_called_once()
 
 
 @patch("cirecon.agent_loop._call_claude")

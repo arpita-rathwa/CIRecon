@@ -10,10 +10,6 @@ inputs:
   anthropic-api-key:
     description: 'Anthropic API key for LLM-based fix fallback'
     required: false
-  github-token:
-    description: 'GitHub token for creating branches and PRs'
-    required: true
-    default: ''
   max-iterations:
     description: 'Maximum agent loop iterations'
     required: false
@@ -44,7 +40,6 @@ runs:
   image: 'Dockerfile'
   env:
     ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
-    GITHUB_TOKEN: ${{ inputs.github-token }}
     MAX_ITERATIONS: ${{ inputs.max-iterations }}
     FAIL_ON_UNRESOLVED: ${{ inputs.fail-on-unresolved }}
     MODE: ${{ inputs.mode }}

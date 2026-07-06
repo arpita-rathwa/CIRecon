@@ -7,7 +7,6 @@ from cirecon.memory import MemoryContext
 from cirecon.tools import (
     apply_fix_tool,
     check_secret_exists,
-    create_branch_and_pr,
     propose_fix,
     read_workflow_file,
     run_rule_checks_tool,
@@ -119,18 +118,6 @@ TOOL_DEFINITIONS = [
             "required": ["path", "patch"],
         },
     },
-    {
-        "name": "create_pr",
-        "description": (
-            "Create a pull request with all accumulated patches. "
-            "Call this when all fixes are applied."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {},
-            "required": [],
-        },
-    },
 ]
 
 
@@ -169,16 +156,14 @@ def build_context(state: AgentState, memory: MemoryContext) -> list[dict]:
         "- run_rule_checks: Run rule engine checks on content\n"
         "- check_secret_exists: Check if a GitHub secret exists\n"
         "- propose_fix: Generate a YAML fix for an issue\n"
-        "- apply_fix: Apply a patch to a file\n"
-        "- create_pr: Create a pull request with all fixes\n\n"
+        "- apply_fix: Apply a patch to a file\n\n"
         "Rules:\n"
         "1. First read the affected file with read_workflow_file\n"
         "2. For each issue, call propose_fix then apply_fix\n"
         "3. After each fix, validate with run_rule_checks\n"
-        "4. When all issues are resolved, call create_pr\n"
-        "5. If an issue is not auto_fixable, skip it and move on\n"
-        "6. Do NOT retry fixes that are in the rejected list\n"
-        "7. Do NOT call the same tool with the same arguments twice"
+        "4. If an issue is not auto_fixable, skip it and move on\n"
+        "5. Do NOT retry fixes that are in the rejected list\n"
+        "6. Do NOT call the same tool with the same arguments twice"
     )
 
     user_message = (
@@ -198,7 +183,7 @@ def build_context(state: AgentState, memory: MemoryContext) -> list[dict]:
     if known_secrets_text:
         user_message += f"\n### {known_secrets_text}\n"
 
-    user_message += "\nContinue fixing the remaining issues or call create_pr if done."
+    user_message += "\nContinue fixing the remaining issues."
 
     return [
         {"role": "system", "content": system_prompt},
@@ -232,14 +217,6 @@ def dispatch_tool(tool_name: str, tool_input: dict, context: dict) -> dict:
             )
         elif tool_name == "apply_fix":
             result = apply_fix_tool(tool_input["path"], tool_input["patch"])
-        elif tool_name == "create_pr":
-            result = create_branch_and_pr(
-                context["state"].applied_fixes,
-                context["state"].issues_fixed,
-                context["state"].unresolved,
-                context["github_token"],
-                context["repo"],
-            )
         else:
             return {"success": False, "error": f"Unknown tool: {tool_name}"}
 

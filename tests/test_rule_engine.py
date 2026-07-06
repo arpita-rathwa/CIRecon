@@ -1,11 +1,14 @@
 from cirecon.rule_engine import (
     check_broken_needs_dependencies,
     check_deprecated_action_versions,
+    check_fork_pr_secret_exposure,
     check_missing_permissions,
     check_overly_broad_permissions,
     check_pull_request_target_unsafe,
+    check_ref_condition_on_multi_trigger,
     check_secret_in_run_command,
     check_unpinned_third_party_action,
+    check_write_step_on_fork_trigger,
     run_all_checks,
 )
 
@@ -248,3 +251,152 @@ def test_overly_broad_permissions_non_dict_jobs():
     issues = check_overly_broad_permissions("f.yml", content)
     assert len(issues) == 1
     assert issues[0].id == "RULE_OVERLY_BROAD_PERMISSIONS"
+
+
+# --- check_fork_pr_secret_exposure ---
+
+def test_detects_fork_pr_secret_exposure_in_run():
+    content = """
+name: CI
+on: [pull_request]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo ${{ secrets.API_KEY }}
+"""
+    issues = check_fork_pr_secret_exposure("f.yml", content)
+    assert len(issues) >= 1
+    assert issues[0].id == "RULE_FORK_PR_SECRET_EXPOSURE"
+
+
+def test_detects_fork_pr_secret_exposure_in_with():
+    content = """
+name: CI
+on: [pull_request]
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: some/action@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+"""
+    issues = check_fork_pr_secret_exposure("f.yml", content)
+    assert len(issues) >= 1
+    assert issues[0].id == "RULE_FORK_PR_SECRET_EXPOSURE"
+
+
+def test_no_fork_pr_secret_exposure_on_push():
+    content = """
+name: CI
+on: [push]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo ${{ secrets.API_KEY }}
+"""
+    issues = check_fork_pr_secret_exposure("f.yml", content)
+    assert len(issues) == 0
+
+
+# --- check_write_step_on_fork_trigger ---
+
+def test_detects_write_step_action_on_fork():
+    content = """
+name: CI
+on: [pull_request]
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: softprops/action-gh-release@v1
+"""
+    issues = check_write_step_on_fork_trigger("f.yml", content)
+    assert len(issues) >= 1
+    assert issues[0].id == "RULE_WRITE_STEP_ON_FORK_TRIGGER"
+
+
+def test_detects_git_push_on_fork():
+    content = """
+name: CI
+on: [pull_request]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: git push origin main
+"""
+    issues = check_write_step_on_fork_trigger("f.yml", content)
+    assert len(issues) >= 1
+    assert issues[0].id == "RULE_WRITE_STEP_ON_FORK_TRIGGER"
+
+
+def test_no_write_step_on_push_only():
+    content = """
+name: CI
+on: [push]
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: softprops/action-gh-release@v1
+"""
+    issues = check_write_step_on_fork_trigger("f.yml", content)
+    assert len(issues) == 0
+
+
+# --- check_ref_condition_on_multi_trigger ---
+
+def test_detects_ref_condition_mismatch():
+    content = """
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo deploy
+        if: github.ref == 'refs/heads/main'
+"""
+    issues = check_ref_condition_on_multi_trigger("f.yml", content)
+    assert len(issues) >= 1
+    assert issues[0].id == "RULE_REF_CONDITION_MISMATCH"
+
+
+def test_no_ref_condition_on_single_trigger():
+    content = """
+name: CI
+on: [push]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo deploy
+        if: github.ref == 'refs/heads/main'
+"""
+    issues = check_ref_condition_on_multi_trigger("f.yml", content)
+    assert len(issues) == 0
+
+
+def test_no_ref_condition_on_clean_multi_trigger():
+    content = """
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo hello
+"""
+    issues = check_ref_condition_on_multi_trigger("f.yml", content)
+    assert len(issues) == 0

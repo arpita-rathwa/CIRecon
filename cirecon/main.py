@@ -1,19 +1,11 @@
 import os
 import sys
 
-from cirecon.agent_loop import run_agent_loop
 from cirecon.dashboard import generate_dashboard_markdown, publish_to_gist
 from cirecon.fix_applier import apply_fix
 from cirecon.input_layer import discover_workflow_files
-from cirecon.memory import (
-    FixRecord,
-    load_memory,
-    record_fix,
-    save_memory,
-)
 from cirecon.org_scanner import scan_repos
 from cirecon.rule_engine import Issue, run_all_checks
-from cirecon.tools import create_branch_and_pr
 from cirecon.validator import validate_all
 
 
@@ -65,17 +57,11 @@ def write_job_summary(
 
 
 def run() -> None:
-    anthropic_api_key = os.getenv("ANTHROPIC_API_KEY", "")
-    github_token = os.getenv("GITHUB_TOKEN", "")
-    repo = os.getenv("GITHUB_REPOSITORY", "")
-    max_iterations = int(os.getenv("MAX_ITERATIONS", "10"))
     fail_on_unresolved = os.getenv("FAIL_ON_UNRESOLVED", "false").lower() == "true"
 
     print(f"Working directory: {os.getcwd()}")
     print(f"Files in current dir: {os.listdir('.')}")
     repo_path = "."
-
-    memory = load_memory(repo_path)
 
     files = discover_workflow_files(repo_path)
     if not files:
@@ -93,12 +79,17 @@ def run() -> None:
         for issue in issues:
             print(f"  [{issue.severity.value.upper()}] {issue.id}: {issue.message}")
 
+    # inline GitHub Actions annotations
+    for issue in all_issues:
+        level = "error" if issue.severity.value in ["critical", "high"] else "warning"
+        line = issue.location.line or 1
+        print(f"::{level} file={issue.location.file},line={line},title={issue.id}::{issue.message}")
+
     if not all_issues:
         print("No issues found — all workflows are clean.")
         write_job_summary(files, [], [], [])
         sys.exit(0)
 
-    patches: list[dict] = []
     issues_fixed: list[dict] = []
     unresolved_dicts: list[dict] = []
 
@@ -132,65 +123,6 @@ def run() -> None:
             else:
                 unresolved_dicts.append(d)
                 print(f"  FAILED: {issue.id} in {path} — {' | '.join(validation.errors)}")
-
-        patches.append({"path": path, "content": current_content})
-
-    if unresolved_dicts and anthropic_api_key:
-        print(f"\nRunning agent loop for {len(unresolved_dicts)} unresolved issues...")
-        state = run_agent_loop(
-            unresolved=unresolved_dicts,
-            memory=memory,
-            api_key=anthropic_api_key,
-            max_iterations=max_iterations,
-            repo=repo,
-            github_token=github_token,
-        )
-        # merge applied fixes from agent loop (deduplicate by path)
-        for fix in state.applied_fixes:
-            existing = [p for p in patches if p["path"] == fix["path"]]
-            if existing:
-                idx = patches.index(existing[0])
-                patches[idx] = fix
-            else:
-                patches.append(fix)
-        for fix in state.issues_fixed:
-            if fix not in issues_fixed:
-                issues_fixed.append(fix)
-        unresolved_dicts = state.unresolved
-        print(f"  Agent loop completed: {len(issues_fixed)} fixed, "
-              f"{len(unresolved_dicts)} unresolved")
-
-    # skip any workflow file that references CIRecon itself
-    patches = [
-        p for p in patches 
-        if 'cirecon' not in p['path'].lower()
-    ]
-
-    if patches and github_token and repo:
-        result = create_branch_and_pr(
-            patches=patches,
-            issues_fixed=issues_fixed,
-            unresolved=unresolved_dicts,
-            github_token=github_token,
-            repo=repo,
-        )
-        if result.success:
-            pr_url = result.data.get("pr_url", "")
-            print(f"Pull request created: {pr_url}")
-            for fix in issues_fixed:
-                record = FixRecord(
-                    issue_id=fix["id"],
-                    file=fix.get("location", {}).get("file", ""),
-                    fix_applied=fix.get("message", ""),
-                    pr_url=pr_url,
-                    pr_status="open",
-                )
-                record_fix(memory, record)
-        else:
-            print(f"Failed to create PR: {result.error}", file=sys.stderr)
-
-    memory.total_runs += 1
-    save_memory(memory, repo_path)
 
     if unresolved_dicts and fail_on_unresolved:
         write_job_summary(files, all_issues, issues_fixed, unresolved_dicts)
