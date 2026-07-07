@@ -199,7 +199,9 @@ def check_secret_in_run_command(path: str, content: str) -> list[Issue]:
                     severity=Severity.CRITICAL,
                     message=f"Job '{job_name}' prints a secret to logs via run command. "
                             "Secrets in run commands are exposed in plain text in workflow logs.",
-                    location=Location(file=path, line=find_line(content, "${{ secrets."), column=None),
+                    location=Location(file=path, line=find_line(
+                        content, "${{ secrets."
+                    ), column=None),
                     auto_fixable=False,
                     confidence=0.95,
                     suggested_fix=None
@@ -263,7 +265,9 @@ def check_pull_request_target_unsafe(path: str, content: str) -> list[Issue]:
                         "This is a known RCE vector — "
                         "pull_request_target gives write access to the repo."
                     ),
-                    location=Location(file=path, line=find_line(content, "pull_request_target"), column=None),
+                    location=Location(file=path, line=find_line(
+                        content, "pull_request_target"
+                    ), column=None),
                     auto_fixable=False,
                     confidence=0.9,
                     suggested_fix=None
@@ -442,7 +446,9 @@ def check_fork_pr_secret_exposure(path: str, content: str) -> list[Issue]:
                     message="Secrets are unavailable in pull_request workflows from forks — "
                             "these will silently be empty strings, causing cryptic failures. "
                             "Use pull_request_target with caution or environment protection rules.",
-                    location=Location(file=path, line=find_line(content, "${{ secrets."), column=None),
+                    location=Location(file=path, line=find_line(
+                        content, "${{ secrets."
+                    ), column=None),
                     auto_fixable=False,
                     confidence=0.95,
                     suggested_fix=None
@@ -456,10 +462,15 @@ def check_fork_pr_secret_exposure(path: str, content: str) -> list[Issue]:
                         issues.append(Issue(
                             id="RULE_FORK_PR_SECRET_EXPOSURE",
                             severity=Severity.HIGH,
-                            message="Secrets are unavailable in pull_request workflows from forks — "
-                                    "these will silently be empty strings, causing cryptic failures. "
-                                    "Use pull_request_target with caution or environment protection rules.",
-                            location=Location(file=path, line=find_line(content, "${{ secrets."), column=None),
+                            message=(
+                                "Secrets are unavailable in pull_request workflows "
+                                "from forks — these will silently be empty strings, "
+                                "causing cryptic failures. Use pull_request_target "
+                                "with caution or environment protection rules."
+                            ),
+                            location=Location(file=path, line=find_line(
+                                content, "${{ secrets."
+                            ), column=None),
                             auto_fixable=False,
                             confidence=0.95,
                             suggested_fix=None
@@ -525,7 +536,9 @@ def check_write_step_on_fork_trigger(path: str, content: str) -> list[Issue]:
                         message="This step requires write token permissions but "
                                 "pull_request events from forks use a read-only token — "
                                 "this step will silently fail on fork PRs.",
-                        location=Location(file=path, line=find_line(content, action_name), column=None),
+                        location=Location(file=path, line=find_line(
+                            content, action_name
+                        ), column=None),
                         auto_fixable=False,
                         confidence=0.9,
                         suggested_fix=None
@@ -586,7 +599,9 @@ def check_ref_condition_on_multi_trigger(path: str, content: str) -> list[Issue]
                     message="This if: condition references github.ref with a branch name — "
                             "this is always false on pull_request events where ref is "
                             "refs/pull/N/merge. This step silently skips on all PRs.",
-                    location=Location(file=path, line=find_line(content, "github.ref =="), column=None),
+                    location=Location(file=path, line=find_line(
+                        content, "github.ref =="
+                    ), column=None),
                     auto_fixable=False,
                     confidence=0.85,
                     suggested_fix=None
