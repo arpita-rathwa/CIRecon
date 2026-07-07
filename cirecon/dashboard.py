@@ -69,8 +69,9 @@ def generate_dashboard_markdown(reports: list[RepoReport]) -> str:
 
 
 def publish_to_gist(markdown: str, github_token: str, gist_id: str = None) -> str:
+    token = github_token.strip()
     headers = {
-        "Authorization": f"Bearer {github_token}",
+        "Authorization": f"token {token}",
         "Accept": "application/vnd.github+json",
     }
 

@@ -138,7 +138,7 @@ def run_dashboard() -> None:
         os.getenv("CIRECON_GITHUB_TOKEN") or
         os.getenv("GITHUB_TOKEN") or
         ""
-    )
+    ).strip()
     repos_str = os.getenv("REPOS", "")
     gist_id = os.getenv("GIST_ID", "")
 
