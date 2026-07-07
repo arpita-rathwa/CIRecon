@@ -134,7 +134,12 @@ def run() -> None:
 
 
 def run_dashboard() -> None:
-    github_token = os.getenv("GITHUB_TOKEN", "")
+    github_token = (
+        os.getenv("GITHUB_TOKEN") or
+        os.getenv("INPUT_GITHUB-TOKEN") or
+        os.getenv("INPUT_GITHUB_TOKEN") or
+        ""
+    )
     repos_str = os.getenv("REPOS", "")
     gist_id = os.getenv("GIST_ID", "")
 
