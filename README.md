@@ -208,23 +208,3 @@ Found a bug? Open an issue using the [bug report template](.github/ISSUE_TEMPLAT
 ## License
 
 MIT — see [LICENSE](LICENSE).
-
----
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
- 
- 
