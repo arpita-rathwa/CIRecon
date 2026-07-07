@@ -20,6 +20,13 @@ class Location:
     column: Optional[int]
 
 
+def find_line(content: str, search_str: str) -> int:
+    for i, line in enumerate(content.splitlines(), start=1):
+        if search_str in line:
+            return i
+    return 1
+
+
 @dataclass
 class Issue:
     id: str
@@ -83,7 +90,7 @@ def check_deprecated_action_versions(path: str, content: str) -> list[Issue]:
                     id="RULE_DEPRECATED_ACTION",
                     severity=Severity.MEDIUM,
                     message=f"'{action}@{version}' is outdated. Latest is '@{latest}'.",
-                    location=Location(file=path, line=None, column=None),
+                    location=Location(file=path, line=find_line(content, uses), column=None),
                     auto_fixable=True,
                     confidence=1.0,
                     suggested_fix=f"{action}@{latest}"
@@ -111,7 +118,7 @@ def check_missing_permissions(path: str, content: str) -> list[Issue]:
             message="Workflow has no top-level 'permissions' block. "
                     "Without explicit permissions, the GITHUB_TOKEN has "
                     "broad default access.",
-            location=Location(file=path, line=None, column=None),
+            location=Location(file=path, line=find_line(content, "jobs:"), column=None),
             auto_fixable=True,
             confidence=0.9,
             suggested_fix="permissions:\n  contents: read"
@@ -155,7 +162,7 @@ def check_broken_needs_dependencies(path: str, content: str) -> list[Issue]:
                     id="RULE_BROKEN_NEEDS_DEPENDENCY",
                     severity=Severity.HIGH,
                     message=f"Job '{job_name}' depends on '{needed_job}' which does not exist.",
-                    location=Location(file=path, line=None, column=None),
+                    location=Location(file=path, line=find_line(content, needed_job), column=None),
                     auto_fixable=False,
                     confidence=1.0,
                     suggested_fix=None
@@ -192,7 +199,7 @@ def check_secret_in_run_command(path: str, content: str) -> list[Issue]:
                     severity=Severity.CRITICAL,
                     message=f"Job '{job_name}' prints a secret to logs via run command. "
                             "Secrets in run commands are exposed in plain text in workflow logs.",
-                    location=Location(file=path, line=None, column=None),
+                    location=Location(file=path, line=find_line(content, "${{ secrets."), column=None),
                     auto_fixable=False,
                     confidence=0.95,
                     suggested_fix=None
@@ -256,7 +263,7 @@ def check_pull_request_target_unsafe(path: str, content: str) -> list[Issue]:
                         "This is a known RCE vector — "
                         "pull_request_target gives write access to the repo."
                     ),
-                    location=Location(file=path, line=None, column=None),
+                    location=Location(file=path, line=find_line(content, "pull_request_target"), column=None),
                     auto_fixable=False,
                     confidence=0.9,
                     suggested_fix=None
@@ -287,7 +294,7 @@ def check_overly_broad_permissions(path: str, content: str) -> list[Issue]:
                     "which gives broad access to the entire repo. "
                     "Restrict to only the scopes needed (e.g. contents: read)."
                 ),
-                location=Location(file=path, line=None, column=None),
+                location=Location(file=path, line=find_line(content, "write-all"), column=None),
                 auto_fixable=False,
                 confidence=1.0,
                 suggested_fix=None
@@ -305,7 +312,7 @@ def check_overly_broad_permissions(path: str, content: str) -> list[Issue]:
                     "Broad permissions increase the blast radius "
                     "if the workflow is compromised."
                 ),
-                location=Location(file=path, line=None, column=None),
+                location=Location(file=path, line=find_line(content, "permissions:"), column=None),
                 auto_fixable=False,
                 confidence=1.0,
                 suggested_fix=None
@@ -328,7 +335,7 @@ def check_overly_broad_permissions(path: str, content: str) -> list[Issue]:
                         f"Job '{job_name}' sets permissions to "
                         f"'{job_perms}', which is overly broad."
                     ),
-                    location=Location(file=path, line=None, column=None),
+                    location=Location(file=path, line=find_line(content, "write-all"), column=None),
                     auto_fixable=False,
                     confidence=1.0,
                     suggested_fix=None
@@ -379,7 +386,7 @@ def check_unpinned_third_party_action(path: str, content: str) -> list[Issue]:
                 severity=Severity.HIGH,
                 message=f"Third-party action '{uses}' is not pinned to a full commit SHA. "
                         "Unpinned actions can be silently updated with malicious code.",
-                location=Location(file=path, line=None, column=None),
+                location=Location(file=path, line=find_line(content, uses), column=None),
                 auto_fixable=False,
                 confidence=1.0,
                 suggested_fix=None
@@ -435,7 +442,7 @@ def check_fork_pr_secret_exposure(path: str, content: str) -> list[Issue]:
                     message="Secrets are unavailable in pull_request workflows from forks — "
                             "these will silently be empty strings, causing cryptic failures. "
                             "Use pull_request_target with caution or environment protection rules.",
-                    location=Location(file=path, line=None, column=None),
+                    location=Location(file=path, line=find_line(content, "${{ secrets."), column=None),
                     auto_fixable=False,
                     confidence=0.95,
                     suggested_fix=None
@@ -452,7 +459,7 @@ def check_fork_pr_secret_exposure(path: str, content: str) -> list[Issue]:
                             message="Secrets are unavailable in pull_request workflows from forks — "
                                     "these will silently be empty strings, causing cryptic failures. "
                                     "Use pull_request_target with caution or environment protection rules.",
-                            location=Location(file=path, line=None, column=None),
+                            location=Location(file=path, line=find_line(content, "${{ secrets."), column=None),
                             auto_fixable=False,
                             confidence=0.95,
                             suggested_fix=None
@@ -518,7 +525,7 @@ def check_write_step_on_fork_trigger(path: str, content: str) -> list[Issue]:
                         message="This step requires write token permissions but "
                                 "pull_request events from forks use a read-only token — "
                                 "this step will silently fail on fork PRs.",
-                        location=Location(file=path, line=None, column=None),
+                        location=Location(file=path, line=find_line(content, action_name), column=None),
                         auto_fixable=False,
                         confidence=0.9,
                         suggested_fix=None
@@ -533,7 +540,7 @@ def check_write_step_on_fork_trigger(path: str, content: str) -> list[Issue]:
                     message="This step requires write token permissions but "
                             "pull_request events from forks use a read-only token — "
                             "this step will silently fail on fork PRs.",
-                    location=Location(file=path, line=None, column=None),
+                    location=Location(file=path, line=find_line(content, "git push"), column=None),
                     auto_fixable=False,
                     confidence=0.9,
                     suggested_fix=None
@@ -579,7 +586,7 @@ def check_ref_condition_on_multi_trigger(path: str, content: str) -> list[Issue]
                     message="This if: condition references github.ref with a branch name — "
                             "this is always false on pull_request events where ref is "
                             "refs/pull/N/merge. This step silently skips on all PRs.",
-                    location=Location(file=path, line=None, column=None),
+                    location=Location(file=path, line=find_line(content, "github.ref =="), column=None),
                     auto_fixable=False,
                     confidence=0.85,
                     suggested_fix=None
