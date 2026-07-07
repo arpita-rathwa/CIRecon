@@ -1,17 +1,20 @@
 import json
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 from cirecon.memory import (
     FixRecord,
     MemoryContext,
+    get_recurring_issues,
     load_memory,
+    record_detection,
     record_fix,
     record_rejected_fix,
     save_memory,
-    update_pr_status,
     was_fix_rejected,
 )
+from cirecon.rule_engine import Issue, Location, Severity
 
 
 def test_save_and_load_roundtrip():
@@ -23,8 +26,8 @@ def test_save_and_load_roundtrip():
                 issue_id="RULE_001",
                 file=".github/workflows/ci.yml",
                 fix_applied="bump actions/checkout@v2 -> v4",
-                pr_url="https://github.com/test/repo/pull/1",
-                pr_status="open",
+                detected_at="2026-01-01T00:00:00+00:00",
+                run_count=2,
             )
         ],
         rejected_fixes=["RULE_002"],
@@ -38,8 +41,9 @@ def test_save_and_load_roundtrip():
     assert loaded.total_runs == 3
     assert len(loaded.fixes) == 1
     assert loaded.fixes[0].issue_id == "RULE_001"
-    assert loaded.fixes[0].pr_url == "https://github.com/test/repo/pull/1"
-    assert loaded.fixes[0].pr_status == "open"
+    assert loaded.fixes[0].file == ".github/workflows/ci.yml"
+    assert loaded.fixes[0].detected_at == "2026-01-01T00:00:00+00:00"
+    assert loaded.fixes[0].run_count == 2
     assert loaded.rejected_fixes == ["RULE_002"]
     assert loaded.known_secrets == ["MY_SECRET"]
 
@@ -68,8 +72,8 @@ def test_record_fix_appends():
         issue_id="RULE_001",
         file="f.yml",
         fix_applied="bump v2->v4",
-        pr_url="https://github.com/test/repo/pull/1",
-        pr_status="open",
+        detected_at="2026-01-01T00:00:00+00:00",
+        run_count=1,
     )
     record_fix(ctx, fix)
     assert len(ctx.fixes) == 1
@@ -83,34 +87,55 @@ def test_record_rejected_fix_deduplicates():
     assert ctx.rejected_fixes == ["RULE_BAD"]
 
 
-def test_update_pr_status_to_merged():
+def test_record_detection_new():
     ctx = MemoryContext(repo="test/repo")
-    fix = FixRecord(
-        issue_id="RULE_001",
-        file="f.yml",
-        fix_applied="bump",
-        pr_url="https://github.com/test/repo/pull/1",
-        pr_status="open",
+    issue = Issue(
+        id="RULE_001",
+        severity=Severity.MEDIUM,
+        message="old action",
+        location=Location(file="ci.yml", line=5, column=None),
+        auto_fixable=True,
+        confidence=1.0,
+        suggested_fix="actions/checkout@v4",
     )
-    record_fix(ctx, fix)
-    update_pr_status(ctx, "https://github.com/test/repo/pull/1", "merged")
-    assert ctx.fixes[0].pr_status == "merged"
-    assert "RULE_001" not in ctx.rejected_fixes
+    ctx = record_detection(ctx, issue)
+    assert len(ctx.fixes) == 1
+    assert ctx.fixes[0].issue_id == "RULE_001"
+    assert ctx.fixes[0].file == "ci.yml"
+    assert ctx.fixes[0].run_count == 1
 
 
-def test_update_pr_status_to_closed_adds_rejected():
+def test_record_detection_existing_increments():
     ctx = MemoryContext(repo="test/repo")
-    fix = FixRecord(
-        issue_id="RULE_001",
-        file="f.yml",
-        fix_applied="bump",
-        pr_url="https://github.com/test/repo/pull/1",
-        pr_status="open",
+    issue = Issue(
+        id="RULE_001",
+        severity=Severity.MEDIUM,
+        message="old action",
+        location=Location(file="ci.yml", line=5, column=None),
+        auto_fixable=True,
+        confidence=1.0,
+        suggested_fix="actions/checkout@v4",
     )
-    record_fix(ctx, fix)
-    update_pr_status(ctx, "https://github.com/test/repo/pull/1", "closed")
-    assert ctx.fixes[0].pr_status == "closed"
-    assert "RULE_001" in ctx.rejected_fixes
+    ctx = record_detection(ctx, issue)
+    ctx = record_detection(ctx, issue)
+    assert len(ctx.fixes) == 1
+    assert ctx.fixes[0].run_count == 2
+
+
+def test_get_recurring_issues():
+    ctx = MemoryContext(repo="test/repo")
+    ctx.fixes = [
+        FixRecord(issue_id="R1", file="a.yml", fix_applied="",
+                  detected_at="", run_count=5),
+        FixRecord(issue_id="R2", file="b.yml", fix_applied="",
+                  detected_at="", run_count=2),
+        FixRecord(issue_id="R3", file="c.yml", fix_applied="",
+                  detected_at="", run_count=4),
+    ]
+    recurring = get_recurring_issues(ctx, threshold=3)
+    assert "R1" in recurring
+    assert "R3" in recurring
+    assert "R2" not in recurring
 
 
 def test_was_fix_rejected():

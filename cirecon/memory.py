@@ -1,6 +1,9 @@
 import json
 from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
+
+from cirecon.rule_engine import Issue
 
 
 @dataclass
@@ -8,8 +11,8 @@ class FixRecord:
     issue_id: str
     file: str
     fix_applied: str
-    pr_url: str
-    pr_status: str  # "open", "merged", "closed"
+    detected_at: str  # ISO timestamp
+    run_count: int    # how many times this issue has been seen
 
 
 @dataclass
@@ -67,14 +70,26 @@ def record_rejected_fix(memory: MemoryContext, issue_id: str) -> MemoryContext:
     return memory
 
 
-def update_pr_status(memory: MemoryContext, pr_url: str, status: str) -> MemoryContext:
+def record_detection(memory: MemoryContext, issue: Issue) -> MemoryContext:
     for fix in memory.fixes:
-        if fix.pr_url == pr_url:
-            fix.pr_status = status
-            if status == "closed":
-                record_rejected_fix(memory, fix.issue_id)
-            break
+        if fix.issue_id == issue.id and fix.file == issue.location.file:
+            fix.run_count += 1
+            return memory
+    memory.fixes.append(FixRecord(
+        issue_id=issue.id,
+        file=issue.location.file,
+        fix_applied=issue.suggested_fix or "",
+        detected_at=datetime.now(timezone.utc).isoformat(),
+        run_count=1,
+    ))
     return memory
+
+
+def get_recurring_issues(memory: MemoryContext, threshold: int = 3) -> list[str]:
+    return [
+        f.issue_id for f in memory.fixes
+        if f.run_count > threshold
+    ]
 
 
 def was_fix_rejected(memory: MemoryContext, issue_id: str) -> bool:

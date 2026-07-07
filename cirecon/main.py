@@ -85,6 +85,13 @@ def run() -> None:
         line = issue.location.line or 1
         print(f"::{level} file={issue.location.file},line={line},title={issue.id}::{issue.message}")
 
+    from cirecon.memory import load_memory, record_detection, save_memory
+    memory = load_memory(".")
+    memory.total_runs += 1
+    for issue in all_issues:
+        memory = record_detection(memory, issue)
+    save_memory(memory, ".")
+
     if not all_issues:
         print("No issues found — all workflows are clean.")
         write_job_summary(files, [], [], [])
