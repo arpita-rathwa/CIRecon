@@ -63,11 +63,13 @@ def scan_repos(repo_list: list[str], github_token: str) -> list[RepoReport]:
                     issue.location.file = strip_tmpdir(issue.location.file, tmpdir)
                 all_issues.extend(issues)
 
+            score = _calculate_health_score(all_issues)
+            print(f"DEBUG: {repo} — {len(all_issues)} issues found, health score: {score}")
             report = RepoReport(
                 repo=repo,
                 files_scanned=len(files),
                 issues=all_issues,
-                health_score=_calculate_health_score(all_issues),
+                health_score=score,
                 scanned_at=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
             )
             reports.append(report)
