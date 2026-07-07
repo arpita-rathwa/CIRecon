@@ -1,10 +1,11 @@
+import json
 import os
 import tempfile
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from cirecon.main import _issue_to_dict, run, write_job_summary
+from cirecon.main import _issue_to_dict, run, to_sarif, write_job_summary
 from cirecon.memory import MemoryContext
 from cirecon.rule_engine import Issue, Location, Severity
 
@@ -201,6 +202,86 @@ def test_main_escalates_recurring_issues(
     assert exc.value.code == 0
     assert issue.severity == Severity.HIGH
     assert "RECURRING" in issue.message
+
+
+def test_to_sarif_empty_issues():
+    sarif = to_sarif([])
+    assert sarif["$schema"] == "https://json.schemastore.org/sarif-2.1.0.json"
+    assert sarif["version"] == "2.1.0"
+    assert sarif["runs"][0]["results"] == []
+
+
+def test_to_sarif_single_issue():
+    issues = [
+        Issue(id="RULE_TEST", severity=Severity.CRITICAL, message="test",
+              location=Location(file="f.yml", line=10, column=None),
+              auto_fixable=False, confidence=1.0, suggested_fix=None),
+    ]
+    sarif = to_sarif(issues)
+    results = sarif["runs"][0]["results"]
+    assert len(results) == 1
+    assert results[0]["ruleId"] == "RULE_TEST"
+    assert results[0]["level"] == "error"
+    assert results[0]["locations"][0]["physicalLocation"]["region"]["startLine"] == 10
+
+
+def test_to_sarif_deduplicates_rules():
+    issues = [
+        Issue(id="RULE_A", severity=Severity.HIGH, message="msg1",
+              location=Location(file="a.yml", line=1, column=None),
+              auto_fixable=False, confidence=1.0, suggested_fix=None),
+        Issue(id="RULE_A", severity=Severity.HIGH, message="msg2",
+              location=Location(file="b.yml", line=2, column=None),
+              auto_fixable=False, confidence=1.0, suggested_fix=None),
+    ]
+    sarif = to_sarif(issues)
+    assert len(sarif["runs"][0]["tool"]["driver"]["rules"]) == 1
+
+
+def test_to_sarif_medium_issue_is_warning():
+    issues = [
+        Issue(id="RULE_MED", severity=Severity.MEDIUM, message="medium",
+              location=Location(file="m.yml", line=1, column=None),
+              auto_fixable=False, confidence=1.0, suggested_fix=None),
+    ]
+    sarif = to_sarif(issues)
+    assert sarif["runs"][0]["results"][0]["level"] == "warning"
+
+
+@patch("cirecon.main.load_memory")
+@patch("cirecon.main.run_all_checks")
+@patch("cirecon.main.discover_workflow_files")
+@patch("cirecon.main.was_issue_recently_fixed")
+@patch("cirecon.main.get_recurring_issues")
+def test_run_writes_sarif_file(
+    mock_recurring, mock_recently_fixed, mock_discover, mock_checks, mock_load
+):
+    mock_discover.return_value = [("test.yml", "name: CI")]
+    mock_checks.return_value = [
+        Issue(id="RULE_TEST", severity=Severity.HIGH, message="test",
+              location=Location(file="test.yml", line=5, column=None),
+              auto_fixable=True, confidence=1.0, suggested_fix="fix"),
+    ]
+    mock_load.return_value = MemoryContext(repo="test")
+    mock_recurring.return_value = []
+    mock_recently_fixed.return_value = False
+
+    sarif_path = os.path.join(os.getenv("GITHUB_WORKSPACE", "."), "cirecon-results.sarif")
+    if os.path.exists(sarif_path):
+        os.unlink(sarif_path)
+
+    with pytest.raises(SystemExit) as exc:
+        run()
+    assert exc.value.code == 0
+
+    assert os.path.exists(sarif_path), "SARIF file was not written"
+    with open(sarif_path, encoding="utf-8") as f:
+        data = json.load(f)
+    assert data["version"] == "2.1.0"
+    assert len(data["runs"][0]["results"]) == 1
+
+    if os.path.exists(sarif_path):
+        os.unlink(sarif_path)
 
 
 def test_write_job_summary_no_env_var():

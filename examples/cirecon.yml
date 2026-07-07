@@ -11,6 +11,8 @@ on:
 jobs:
   cirecon:
     runs-on: ubuntu-latest
+    permissions:
+      security-events: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/cache@v4
@@ -20,3 +22,8 @@ jobs:
       - uses: arpita-rathwa/CIRecon@v1
         with:
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: cirecon-results.sarif
+          category: cirecon

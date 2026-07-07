@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 
@@ -66,6 +67,59 @@ def write_job_summary(
             f.write("No issues detected in any workflow file.\n")
 
 
+def to_sarif(issues: list, repo: str = "") -> dict:
+    rules = []
+    seen_rule_ids = set()
+    for issue in issues:
+        if issue.id not in seen_rule_ids:
+            seen_rule_ids.add(issue.id)
+            rules.append({
+                "id": issue.id,
+                "name": issue.id,
+                "shortDescription": {"text": issue.message[:100]},
+                "properties": {
+                    "tags": ["security"]
+                    if "SECRET" in issue.id or "UNSAFE" in issue.id
+                       or "PERMISSIONS" in issue.id or "UNPINNED" in issue.id
+                    else ["correctness"],
+                },
+            })
+
+    results = []
+    for issue in issues:
+        level = "error" if issue.severity.value in ["critical", "high"] else "warning"
+        results.append({
+            "ruleId": issue.id,
+            "level": level,
+            "message": {"text": issue.message},
+            "locations": [{
+                "physicalLocation": {
+                    "artifactLocation": {
+                        "uri": issue.location.file,
+                        "uriBaseId": "%SRCROOT%",
+                    },
+                    "region": {"startLine": issue.location.line or 1},
+                },
+            }],
+        })
+
+    return {
+        "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+        "version": "2.1.0",
+        "runs": [{
+            "tool": {
+                "driver": {
+                    "name": "CIRecon",
+                    "version": "1.0.0",
+                    "informationUri": "https://github.com/arpita-rathwa/CIRecon",
+                    "rules": rules,
+                },
+            },
+            "results": results,
+        }],
+    }
+
+
 def run() -> None:
     os.makedirs(MEMORY_DIR, exist_ok=True)
     print(f"Memory directory created: {MEMORY_DIR}")
@@ -122,6 +176,13 @@ def run() -> None:
         level = "error" if issue.severity.value in ["critical", "high"] else "warning"
         line = issue.location.line or 1
         print(f"::{level} file={issue.location.file},line={line},title={issue.id}::{issue.message}")
+
+    # SARIF output
+    sarif_path = os.path.join(os.getenv("GITHUB_WORKSPACE", "."), "cirecon-results.sarif")
+    sarif_output = to_sarif(all_issues, os.getenv("GITHUB_REPOSITORY", ""))
+    with open(sarif_path, "w", encoding="utf-8") as f:
+        json.dump(sarif_output, f, indent=2)
+    print(f"SARIF output written to {sarif_path}")
 
     memory.total_runs += 1
 
