@@ -49,7 +49,7 @@ def test_save_and_load_roundtrip():
 
 
 def test_load_missing_file_returns_empty():
-    mem_file = Path("/tmp/cirecon-memory/memory.json")
+    mem_file = Path(".cirecon-memory/memory.json")
     if mem_file.exists():
         mem_file.unlink()
     ctx = load_memory("/nonexistent")
@@ -60,8 +60,10 @@ def test_load_missing_file_returns_empty():
 
 def test_save_creates_directory():
     ctx = MemoryContext(repo="test/repo")
-    save_memory(ctx, "/tmp/cirecon-memory")
-    mem_file = Path("/tmp/cirecon-memory/memory.json")
+    mem_file = Path(".cirecon-memory/memory.json")
+    if mem_file.exists():
+        mem_file.unlink()
+    save_memory(ctx, ".")
     assert mem_file.exists()
     raw = json.loads(mem_file.read_text())
     assert raw["repo"] == "test/repo"

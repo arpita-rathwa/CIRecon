@@ -15,7 +15,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/cache@v4
         with:
-          path: /tmp/cirecon-memory
+          path: .cirecon-memory
           key: cirecon-memory-${{ github.repository }}
       - uses: arpita-rathwa/CIRecon@v1
         with:

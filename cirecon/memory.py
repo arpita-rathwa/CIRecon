@@ -1,4 +1,5 @@
 import json
+import os
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -24,7 +25,7 @@ class MemoryContext:
     known_secrets: list[str] = field(default_factory=list)
 
 
-MEMORY_FILE = Path("/tmp/cirecon-memory/memory.json")
+MEMORY_FILE = Path(os.getenv("GITHUB_WORKSPACE", ".")) / ".cirecon-memory" / "memory.json"
 
 
 def _memory_file_path(path: str) -> Path:

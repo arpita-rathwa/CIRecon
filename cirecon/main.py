@@ -2,14 +2,15 @@ import os
 import sys
 
 from cirecon.dashboard import generate_dashboard_markdown, publish_to_gist
-from cirecon.memory import load_memory, record_detection, save_memory
-
-MEMORY_PATH = "/tmp/cirecon-memory/memory.json"
 from cirecon.fix_applier import apply_fix
 from cirecon.input_layer import discover_workflow_files
+from cirecon.memory import load_memory, record_detection, save_memory
 from cirecon.org_scanner import scan_repos
 from cirecon.rule_engine import Issue, run_all_checks
 from cirecon.validator import validate_all
+
+MEMORY_DIR = os.path.join(os.getenv("GITHUB_WORKSPACE", "."), ".cirecon-memory")
+MEMORY_PATH = os.path.join(MEMORY_DIR, "memory.json")
 
 
 def _issue_to_dict(issue: Issue) -> dict:
@@ -60,8 +61,8 @@ def write_job_summary(
 
 
 def run() -> None:
-    os.makedirs("/tmp/cirecon-memory", exist_ok=True)
-    print(f"Memory directory created: /tmp/cirecon-memory")
+    os.makedirs(MEMORY_DIR, exist_ok=True)
+    print(f"Memory directory created: {MEMORY_DIR}")
 
     memory = load_memory(MEMORY_PATH)
     print(f"Memory loaded: {memory.total_runs} previous runs")

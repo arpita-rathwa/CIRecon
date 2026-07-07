@@ -9,13 +9,13 @@ pytest tests/ -v
 
 ## Memory persistence
 
-CIRecon tracks issue history across runs using a memory file at `/tmp/cirecon-memory/memory.json`.
+CIRecon tracks issue history across runs using a memory file at `.cirecon-memory/memory.json` in the workspace.
 To preserve memory between workflow runs, add the `actions/cache` step before the CIRecon step:
 
 ```yaml
 - uses: actions/cache@v4
   with:
-    path: /tmp/cirecon-memory
+    path: .cirecon-memory
     key: cirecon-memory-${{ github.repository }}
 ```
 
