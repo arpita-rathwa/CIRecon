@@ -13,6 +13,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: /tmp/cirecon-memory
+          key: cirecon-memory-${{ github.repository }}
       - uses: arpita-rathwa/CIRecon@v1
         with:
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}

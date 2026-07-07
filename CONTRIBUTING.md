@@ -7,6 +7,20 @@ pip install -r requirements.txt
 pytest tests/ -v
 ```
 
+## Memory persistence
+
+CIRecon tracks issue history across runs using a memory file at `/tmp/cirecon-memory/memory.json`.
+To preserve memory between workflow runs, add the `actions/cache` step before the CIRecon step:
+
+```yaml
+- uses: actions/cache@v4
+  with:
+    path: /tmp/cirecon-memory
+    key: cirecon-memory-${{ github.repository }}
+```
+
+Without the cache step, memory resets on every run and issue run counts will not accumulate.
+
 ## Adding a new rule
 
 1. Create a new check function in `cirecon/rule_engine.py` that takes `(path: str, content: str) -> list[Issue]`

@@ -24,8 +24,11 @@ class MemoryContext:
     known_secrets: list[str] = field(default_factory=list)
 
 
+MEMORY_FILE = Path("/tmp/cirecon-memory/memory.json")
+
+
 def _memory_file_path(path: str) -> Path:
-    return Path(path) / ".github" / "cirecon" / "memory.json"
+    return MEMORY_FILE
 
 
 def _fix_record_to_dict(r: FixRecord) -> dict:

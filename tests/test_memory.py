@@ -49,21 +49,23 @@ def test_save_and_load_roundtrip():
 
 
 def test_load_missing_file_returns_empty():
-    with tempfile.TemporaryDirectory() as tmp:
-        ctx = load_memory(tmp)
+    mem_file = Path("/tmp/cirecon-memory/memory.json")
+    if mem_file.exists():
+        mem_file.unlink()
+    ctx = load_memory("/nonexistent")
     assert ctx.total_runs == 0
     assert ctx.fixes == []
     assert ctx.rejected_fixes == []
 
 
 def test_save_creates_directory():
-    with tempfile.TemporaryDirectory() as tmp:
-        ctx = MemoryContext(repo="test/repo")
-        save_memory(ctx, tmp)
-        mem_file = Path(tmp) / ".github" / "cirecon" / "memory.json"
-        assert mem_file.exists()
-        raw = json.loads(mem_file.read_text())
-        assert raw["repo"] == "test/repo"
+    ctx = MemoryContext(repo="test/repo")
+    save_memory(ctx, "/tmp/cirecon-memory")
+    mem_file = Path("/tmp/cirecon-memory/memory.json")
+    assert mem_file.exists()
+    raw = json.loads(mem_file.read_text())
+    assert raw["repo"] == "test/repo"
+    mem_file.unlink()
 
 
 def test_record_fix_appends():

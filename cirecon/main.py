@@ -2,6 +2,9 @@ import os
 import sys
 
 from cirecon.dashboard import generate_dashboard_markdown, publish_to_gist
+from cirecon.memory import load_memory, record_detection, save_memory
+
+MEMORY_PATH = "/tmp/cirecon-memory/memory.json"
 from cirecon.fix_applier import apply_fix
 from cirecon.input_layer import discover_workflow_files
 from cirecon.org_scanner import scan_repos
@@ -57,6 +60,12 @@ def write_job_summary(
 
 
 def run() -> None:
+    os.makedirs("/tmp/cirecon-memory", exist_ok=True)
+    print(f"Memory directory created: /tmp/cirecon-memory")
+
+    memory = load_memory(MEMORY_PATH)
+    print(f"Memory loaded: {memory.total_runs} previous runs")
+
     fail_on_unresolved = os.getenv("FAIL_ON_UNRESOLVED", "false").lower() == "true"
 
     print(f"Working directory: {os.getcwd()}")
@@ -66,6 +75,9 @@ def run() -> None:
     files = discover_workflow_files(repo_path)
     if not files:
         print("No workflow files found.")
+        memory.total_runs += 1
+        save_memory(memory, MEMORY_PATH)
+        print(f"Memory saved: {memory.total_runs} total runs, {len(memory.fixes)} issues tracked")
         sys.exit(0)
 
     all_issues: list[Issue] = []
@@ -85,16 +97,15 @@ def run() -> None:
         line = issue.location.line or 1
         print(f"::{level} file={issue.location.file},line={line},title={issue.id}::{issue.message}")
 
-    from cirecon.memory import load_memory, record_detection, save_memory
-    memory = load_memory(".")
     memory.total_runs += 1
     for issue in all_issues:
         memory = record_detection(memory, issue)
-    save_memory(memory, ".")
 
     if not all_issues:
         print("No issues found — all workflows are clean.")
         write_job_summary(files, [], [], [])
+        save_memory(memory, MEMORY_PATH)
+        print(f"Memory saved: {memory.total_runs} total runs, {len(memory.fixes)} issues tracked")
         sys.exit(0)
 
     issues_fixed: list[dict] = []
@@ -130,6 +141,9 @@ def run() -> None:
             else:
                 unresolved_dicts.append(d)
                 print(f"  FAILED: {issue.id} in {path} — {' | '.join(validation.errors)}")
+
+    save_memory(memory, MEMORY_PATH)
+    print(f"Memory saved: {memory.total_runs} total runs, {len(memory.fixes)} issues tracked")
 
     if unresolved_dicts and fail_on_unresolved:
         write_job_summary(files, all_issues, issues_fixed, unresolved_dicts)
