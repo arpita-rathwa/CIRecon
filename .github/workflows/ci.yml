@@ -7,15 +7,35 @@ on:
     branches: [main]
 
 jobs:
-  lint-and-test:
+  test:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      security-events: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-      - run: pip install -e ".[dev]"
-      - run: ruff check cirecon/
-      - run: pytest tests/ -v --cov=cirecon --cov-fail-under=80
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+      - name: Run ruff
+        run: ruff check cirecon/
+      - name: Run tests
+        run: pytest tests/ -v --cov=cirecon --cov-fail-under=80
+
+  scan:
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: .cirecon-memory
+          key: cirecon-memory-${{ github.repository }}
+      - uses: arpita-rathwa/CIRecon@v1
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: cirecon-results.sarif
+          category: cirecon
