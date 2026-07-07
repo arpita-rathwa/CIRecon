@@ -13,6 +13,7 @@ from cirecon.memory import (
     record_rejected_fix,
     save_memory,
     was_fix_rejected,
+    was_issue_recently_fixed,
 )
 from cirecon.rule_engine import Issue, Location, Severity
 
@@ -109,7 +110,7 @@ def test_record_detection_new():
     assert ctx.fixes[0].run_count == 1
 
 
-def test_record_detection_existing_increments():
+def test_record_detection_existing_appends_again():
     ctx = MemoryContext(repo="test/repo")
     issue = Issue(
         id="RULE_001",
@@ -122,24 +123,57 @@ def test_record_detection_existing_increments():
     )
     ctx = record_detection(ctx, issue)
     ctx = record_detection(ctx, issue)
-    assert len(ctx.fixes) == 1
-    assert ctx.fixes[0].run_count == 2
+    assert len(ctx.fixes) == 2
+    assert ctx.fixes[0].run_count == 1
+    assert ctx.fixes[1].run_count == 1
 
 
-def test_get_recurring_issues():
+def test_get_recurring_issues_returns_above_threshold():
     ctx = MemoryContext(repo="test/repo")
     ctx.fixes = [
         FixRecord(issue_id="R1", file="a.yml", fix_applied="",
-                  detected_at="", run_count=5),
+                  detected_at="", run_count=1),
+        FixRecord(issue_id="R1", file="a.yml", fix_applied="",
+                  detected_at="", run_count=1),
+        FixRecord(issue_id="R1", file="a.yml", fix_applied="",
+                  detected_at="", run_count=1),
         FixRecord(issue_id="R2", file="b.yml", fix_applied="",
-                  detected_at="", run_count=2),
-        FixRecord(issue_id="R3", file="c.yml", fix_applied="",
-                  detected_at="", run_count=4),
+                  detected_at="", run_count=1),
     ]
     recurring = get_recurring_issues(ctx, threshold=3)
     assert "R1" in recurring
-    assert "R3" in recurring
     assert "R2" not in recurring
+
+
+def test_get_recurring_issues_ignores_below_threshold():
+    ctx = MemoryContext(repo="test/repo")
+    ctx.fixes = [
+        FixRecord(issue_id="R1", file="a.yml", fix_applied="",
+                  detected_at="", run_count=1),
+        FixRecord(issue_id="R1", file="a.yml", fix_applied="",
+                  detected_at="", run_count=1),
+    ]
+    recurring = get_recurring_issues(ctx, threshold=3)
+    assert recurring == []
+
+
+def test_was_issue_recently_fixed_returns_true():
+    ctx = MemoryContext(repo="test/repo")
+    ctx.fixes = [
+        FixRecord(issue_id="R1", file="a.yml", fix_applied="",
+                  detected_at="", run_count=1),
+    ]
+    assert was_issue_recently_fixed(ctx, "R1", "a.yml") is True
+
+
+def test_was_issue_recently_fixed_returns_false_for_old_fix():
+    ctx = MemoryContext(repo="test/repo")
+    ctx.fixes = [
+        FixRecord(issue_id="R1", file="a.yml", fix_applied="",
+                  detected_at="", run_count=1),
+    ]
+    # outside the default window of 5
+    assert was_issue_recently_fixed(ctx, "R2", "b.yml") is False
 
 
 def test_was_fix_rejected():

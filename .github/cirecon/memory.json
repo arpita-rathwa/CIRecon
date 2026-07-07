@@ -1,7 +1,22 @@
 {
   "repo": ".",
-  "total_runs": 88,
-  "fixes": [],
+  "total_runs": 91,
+  "fixes": [
+    {
+      "issue_id": "RULE_DEPRECATED_ACTION",
+      "file": "test.yml",
+      "fix_applied": "actions/checkout@v4",
+      "detected_at": "2026-07-07T10:31:56.146287+00:00",
+      "run_count": 1
+    },
+    {
+      "issue_id": "RULE_MISSING_PERMISSIONS_BLOCK",
+      "file": "test.yml",
+      "fix_applied": "permissions:\n  contents: read",
+      "detected_at": "2026-07-07T10:31:56.163187+00:00",
+      "run_count": 1
+    }
+  ],
   "rejected_fixes": [],
   "known_secrets": []
 }

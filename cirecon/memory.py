@@ -75,14 +75,10 @@ def record_rejected_fix(memory: MemoryContext, issue_id: str) -> MemoryContext:
 
 
 def record_detection(memory: MemoryContext, issue: Issue) -> MemoryContext:
-    for fix in memory.fixes:
-        if fix.issue_id == issue.id and fix.file == issue.location.file:
-            fix.run_count += 1
-            return memory
     memory.fixes.append(FixRecord(
         issue_id=issue.id,
         file=issue.location.file,
-        fix_applied=issue.suggested_fix or "",
+        fix_applied=issue.suggested_fix or "detected",
         detected_at=datetime.now(timezone.utc).isoformat(),
         run_count=1,
     ))
@@ -90,10 +86,16 @@ def record_detection(memory: MemoryContext, issue: Issue) -> MemoryContext:
 
 
 def get_recurring_issues(memory: MemoryContext, threshold: int = 3) -> list[str]:
-    return [
-        f.issue_id for f in memory.fixes
-        if f.run_count > threshold
-    ]
+    from collections import Counter
+    counts = Counter(f.issue_id for f in memory.fixes)
+    return [issue_id for issue_id, count in counts.items() if count >= threshold]
+
+
+def was_issue_recently_fixed(
+    memory: MemoryContext, issue_id: str, file: str, within_runs: int = 5
+) -> bool:
+    recent = memory.fixes[-(within_runs):]
+    return any(f.issue_id == issue_id and f.file == file for f in recent)
 
 
 def was_fix_rejected(memory: MemoryContext, issue_id: str) -> bool:

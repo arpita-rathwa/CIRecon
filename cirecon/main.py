@@ -4,9 +4,15 @@ import sys
 from cirecon.dashboard import generate_dashboard_markdown, publish_to_gist
 from cirecon.fix_applier import apply_fix
 from cirecon.input_layer import discover_workflow_files
-from cirecon.memory import load_memory, record_detection, save_memory
+from cirecon.memory import (
+    get_recurring_issues,
+    load_memory,
+    record_detection,
+    save_memory,
+    was_issue_recently_fixed,
+)
 from cirecon.org_scanner import scan_repos
-from cirecon.rule_engine import Issue, run_all_checks
+from cirecon.rule_engine import Issue, Severity, run_all_checks
 from cirecon.validator import validate_all
 
 MEMORY_DIR = os.path.join(os.getenv("GITHUB_WORKSPACE", "."), ".cirecon-memory")
@@ -92,6 +98,25 @@ def run() -> None:
         for issue in issues:
             print(f"  [{issue.severity.value.upper()}] {issue.id}: {issue.message}")
 
+    # Behavior 1: Escalate recurring issues
+    recurring = get_recurring_issues(memory)
+    for issue in all_issues:
+        if issue.id in recurring:
+            if issue.severity == Severity.MEDIUM:
+                issue.severity = Severity.HIGH
+            elif issue.severity == Severity.HIGH:
+                issue.severity = Severity.CRITICAL
+            issue.message += " [RECURRING — seen 3+ times]"
+
+    # Behavior 2: Filter out recently fixed issues
+    original_count = len(all_issues)
+    all_issues = [
+        issue for issue in all_issues
+        if not was_issue_recently_fixed(memory, issue.id, issue.location.file)
+    ]
+    if len(all_issues) < original_count:
+        print(f"Memory: skipped {original_count - len(all_issues)} previously fixed issues")
+
     # inline GitHub Actions annotations
     for issue in all_issues:
         level = "error" if issue.severity.value in ["critical", "high"] else "warning"
@@ -99,8 +124,6 @@ def run() -> None:
         print(f"::{level} file={issue.location.file},line={line},title={issue.id}::{issue.message}")
 
     memory.total_runs += 1
-    for issue in all_issues:
-        memory = record_detection(memory, issue)
 
     if not all_issues:
         print("No issues found — all workflows are clean.")
@@ -142,6 +165,10 @@ def run() -> None:
             else:
                 unresolved_dicts.append(d)
                 print(f"  FAILED: {issue.id} in {path} — {' | '.join(validation.errors)}")
+
+    # Behavior 3: Record detected issues to memory
+    for issue in all_issues:
+        memory = record_detection(memory, issue)
 
     save_memory(memory, MEMORY_PATH)
     print(f"Memory saved: {memory.total_runs} total runs, {len(memory.fixes)} issues tracked")

@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from cirecon.main import _issue_to_dict, run, write_job_summary
+from cirecon.memory import MemoryContext
 from cirecon.rule_engine import Issue, Location, Severity
 
 
@@ -153,6 +154,53 @@ def test_write_job_summary_no_issues():
 
         assert "\u2705 All workflows are clean" in content
         assert "No issues detected" in content
+
+
+@patch("cirecon.main.load_memory")
+@patch("cirecon.main.run_all_checks")
+@patch("cirecon.main.discover_workflow_files")
+@patch("cirecon.main.was_issue_recently_fixed")
+@patch("cirecon.main.get_recurring_issues")
+def test_main_skips_recently_fixed_issues(
+    mock_recurring, mock_recently_fixed, mock_discover, mock_checks, mock_load
+):
+    mock_discover.return_value = [("test.yml", "name: CI")]
+    mock_checks.return_value = [
+        Issue(id="R1", severity=Severity.MEDIUM, message="old action",
+              location=Location(file="test.yml", line=5, column=None),
+              auto_fixable=True, confidence=1.0, suggested_fix="fix"),
+    ]
+    mock_load.return_value = MemoryContext(repo="test")
+    mock_recurring.return_value = []
+    mock_recently_fixed.return_value = True
+
+    with pytest.raises(SystemExit) as exc:
+        run()
+    assert exc.value.code == 0
+
+
+@patch("cirecon.main.load_memory")
+@patch("cirecon.main.run_all_checks")
+@patch("cirecon.main.discover_workflow_files")
+@patch("cirecon.main.was_issue_recently_fixed")
+@patch("cirecon.main.get_recurring_issues")
+def test_main_escalates_recurring_issues(
+    mock_recurring, mock_recently_fixed, mock_discover, mock_checks, mock_load
+):
+    issue = Issue(id="R1", severity=Severity.MEDIUM, message="old action",
+                  location=Location(file="test.yml", line=5, column=None),
+                  auto_fixable=True, confidence=1.0, suggested_fix="fix")
+    mock_discover.return_value = [("test.yml", "name: CI")]
+    mock_checks.return_value = [issue]
+    mock_load.return_value = MemoryContext(repo="test")
+    mock_recurring.return_value = ["R1"]
+    mock_recently_fixed.return_value = False
+
+    with pytest.raises(SystemExit) as exc:
+        run()
+    assert exc.value.code == 0
+    assert issue.severity == Severity.HIGH
+    assert "RECURRING" in issue.message
 
 
 def test_write_job_summary_no_env_var():

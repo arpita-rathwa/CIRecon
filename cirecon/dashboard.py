@@ -86,7 +86,6 @@ def publish_to_gist(markdown: str, github_token: str, gist_id: str = None) -> st
     }
 
     if gist_id:
-        print(f"DEBUG: Attempting to update gist {gist_id}")
         resp = requests.patch(
             f"https://api.github.com/gists/{gist_id}",
             headers=headers,
@@ -94,16 +93,12 @@ def publish_to_gist(markdown: str, github_token: str, gist_id: str = None) -> st
             timeout=30,
         )
     else:
-        print("DEBUG: Creating new gist")
         resp = requests.post(
             "https://api.github.com/gists",
             headers=headers,
             json=gist_data,
             timeout=30,
         )
-
-    print(f"DEBUG: Response status: {resp.status_code}")
-    print(f"DEBUG: Response body: {resp.text[:200]}")
 
     if not resp.ok:
         print(f"Gist API error {resp.status_code}: {resp.text}")
