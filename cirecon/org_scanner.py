@@ -1,3 +1,4 @@
+import os
 import shutil
 import subprocess
 import tempfile
@@ -6,6 +7,12 @@ from datetime import datetime, timezone
 
 from cirecon.input_layer import discover_workflow_files
 from cirecon.rule_engine import Issue, run_all_checks
+
+
+def strip_tmpdir(path: str, tmpdir: str) -> str:
+    if path.startswith(tmpdir):
+        return path[len(tmpdir):].lstrip(os.sep)
+    return path
 
 
 @dataclass
@@ -52,6 +59,8 @@ def scan_repos(repo_list: list[str], github_token: str) -> list[RepoReport]:
             all_issues: list[Issue] = []
             for path, content in files:
                 issues = run_all_checks(path, content)
+                for issue in issues:
+                    issue.location.file = strip_tmpdir(issue.location.file, tmpdir)
                 all_issues.extend(issues)
 
             report = RepoReport(

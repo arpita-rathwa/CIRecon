@@ -97,5 +97,10 @@ def publish_to_gist(markdown: str, github_token: str, gist_id: str = None) -> st
             timeout=30,
         )
 
-    resp.raise_for_status()
-    return resp.json()["html_url"]
+    if not resp.ok:
+        print(f"Gist API error {resp.status_code}: {resp.text}")
+        resp.raise_for_status()
+
+    url = resp.json()["html_url"]
+    print(f"Gist published: {url}")
+    return url
