@@ -197,6 +197,10 @@ Health scores start at 100 and deduct per issue (CRITICAL: −20, HIGH: −10, M
 
 ---
 
+## Architecture
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for a deep dive into the system design — memory layer, SARIF output, dashboard mode, rule engine design, and Mermaid diagrams of the data flow.
+
 ## Contributing
 
 Adding a new rule takes about 15 minutes. See [CONTRIBUTING.md](CONTRIBUTING.md) for a step-by-step guide.
