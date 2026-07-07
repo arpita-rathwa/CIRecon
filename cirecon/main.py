@@ -135,16 +135,15 @@ def run() -> None:
 
 def run_dashboard() -> None:
     github_token = (
+        os.getenv("CIRECON_GITHUB_TOKEN") or
         os.getenv("GITHUB_TOKEN") or
-        os.getenv("INPUT_GITHUB-TOKEN") or
-        os.getenv("INPUT_GITHUB_TOKEN") or
         ""
     )
     repos_str = os.getenv("REPOS", "")
     gist_id = os.getenv("GIST_ID", "")
 
     if not github_token:
-        print("GITHUB_TOKEN is required for dashboard mode.")
+        print("CIRECON_GITHUB_TOKEN (or GITHUB_TOKEN) is required for dashboard mode.")
         sys.exit(1)
     if not repos_str:
         print("REPOS env var is required for dashboard mode (comma-separated).")

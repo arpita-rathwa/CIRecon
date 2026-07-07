@@ -50,4 +50,4 @@ runs:
     REPOS: ${{ inputs.repos }}
     GIST_ID: ${{ inputs.gist-id }}
     CLAUDE_MODEL: ${{ inputs.claude-model }}
-    GITHUB_TOKEN: ${{ inputs.github-token }}
+    CIRECON_GITHUB_TOKEN: ${{ inputs.github-token }}
