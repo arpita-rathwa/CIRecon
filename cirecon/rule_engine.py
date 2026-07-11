@@ -27,6 +27,17 @@ def find_line(content: str, search_str: str) -> int:
     return 1
 
 
+def get_triggers(parsed: dict) -> list[str]:
+    on_value = parsed.get("on", parsed.get(True, {}))
+    if isinstance(on_value, str):
+        return [on_value]
+    if isinstance(on_value, list):
+        return on_value
+    if isinstance(on_value, dict):
+        return list(on_value.keys())
+    return []
+
+
 @dataclass
 class Issue:
     id: str
@@ -143,19 +154,19 @@ def check_broken_needs_dependencies(path: str, content: str) -> list[Issue]:
         return issues
 
     valid_job_ids = set(jobs.keys())
-        # e.g. {"build", "test", "deploy"}
+
     for job_name, job in jobs.items():
         if not isinstance(job, dict):
             continue
-    
+
         needs = job.get("needs")
         if not needs:
-            continue  # this job has no needs, skip it
-        
-    # needs can be a string OR a list
+            continue
+
+        # needs can be a string OR a list
         if isinstance(needs, str):
             needs = [needs]
-    
+
         for needed_job in needs:
             if needed_job not in valid_job_ids:
                 issues.append(Issue(
@@ -167,8 +178,8 @@ def check_broken_needs_dependencies(path: str, content: str) -> list[Issue]:
                     confidence=1.0,
                     suggested_fix=None
                 ))
-    
-    return issues  # no need to check jobs if top-level is missing
+
+    return issues
 
 def check_secret_in_run_command(path: str, content: str) -> list[Issue]:
     issues = []
@@ -220,21 +231,8 @@ def check_pull_request_target_unsafe(path: str, content: str) -> list[Issue]:
     if not parsed:
         return issues
 
-    # YAML 1.1 parses "on" as boolean True, so check both
-    on_value = parsed.get("on", parsed.get(True, {}))
-    if not isinstance(on_value, dict):
-        if isinstance(on_value, str):
-            triggers = [on_value]
-        elif isinstance(on_value, list):
-            triggers = on_value
-        else:
-            triggers = []
-        has_pr_target = any(
-            isinstance(t, str) and t == "pull_request_target" for t in triggers
-        )
-    else:
-        triggers = list(on_value.keys())
-        has_pr_target = "pull_request_target" in triggers
+    triggers = get_triggers(parsed)
+    has_pr_target = "pull_request_target" in triggers
 
     if not has_pr_target:
         return issues
@@ -410,18 +408,8 @@ def check_fork_pr_secret_exposure(path: str, content: str) -> list[Issue]:
     if not parsed:
         return issues
 
-    on_value = parsed.get("on", parsed.get(True, {}))
-    if not isinstance(on_value, dict):
-        if isinstance(on_value, str):
-            triggers = [on_value]
-        elif isinstance(on_value, list):
-            triggers = on_value
-        else:
-            triggers = []
-        has_pr = any(isinstance(t, str) and t == "pull_request" for t in triggers)
-    else:
-        triggers = list(on_value.keys())
-        has_pr = "pull_request" in triggers
+    triggers = get_triggers(parsed)
+    has_pr = "pull_request" in triggers
 
     if not has_pr:
         return issues
@@ -498,18 +486,8 @@ def check_write_step_on_fork_trigger(path: str, content: str) -> list[Issue]:
     if not parsed:
         return issues
 
-    on_value = parsed.get("on", parsed.get(True, {}))
-    if not isinstance(on_value, dict):
-        if isinstance(on_value, str):
-            triggers = [on_value]
-        elif isinstance(on_value, list):
-            triggers = on_value
-        else:
-            triggers = []
-        has_pr = any(isinstance(t, str) and t == "pull_request" for t in triggers)
-    else:
-        triggers = list(on_value.keys())
-        has_pr = "pull_request" in triggers
+    triggers = get_triggers(parsed)
+    has_pr = "pull_request" in triggers
 
     if not has_pr:
         return issues
@@ -573,10 +551,9 @@ def check_ref_condition_on_multi_trigger(path: str, content: str) -> list[Issue]
     if not parsed:
         return issues
 
-    on_value = parsed.get("on", parsed.get(True, {}))
-    if not isinstance(on_value, dict):
+    triggers = get_triggers(parsed)
+    if not isinstance(triggers, list) or len(triggers) < 2:
         return issues
-    triggers = list(on_value.keys())
     if "push" not in triggers or "pull_request" not in triggers:
         return issues
 

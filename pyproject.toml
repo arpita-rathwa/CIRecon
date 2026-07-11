@@ -17,7 +17,6 @@ dependencies = [
     "PyGithub>=2.0",
     "requests>=2.31",
     "rich>=13.0",
-    "pydantic>=2.0",
 ]
 
 [project.optional-dependencies]
@@ -27,6 +26,9 @@ dev = [
     "ruff>=0.5",
     "mypy>=1.10",
 ]
+
+[project.scripts]
+cirecon = "cirecon.main:run"
 
 [tool.ruff]
 line-length = 100

@@ -1,4 +1,6 @@
+import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional
 
 import jsonschema
@@ -28,10 +30,16 @@ def fetch_github_actions_schema() -> dict:
     global _SCHEMA_CACHE
     if _SCHEMA_CACHE is not None:
         return _SCHEMA_CACHE
-    resp = requests.get("https://json.schemastore.org/github-workflow.json", timeout=30)
-    resp.raise_for_status()
-    _SCHEMA_CACHE = resp.json()
-    return _SCHEMA_CACHE
+    try:
+        resp = requests.get("https://json.schemastore.org/github-workflow.json", timeout=30)
+        resp.raise_for_status()
+        _SCHEMA_CACHE = resp.json()
+        return _SCHEMA_CACHE
+    except requests.RequestException:
+        schema_path = Path(__file__).parent / "schemas" / "github-workflow.json"
+        with open(schema_path, encoding="utf-8") as f:
+            _SCHEMA_CACHE = json.load(f)
+        return _SCHEMA_CACHE
 
 
 def validate_schema(content: str) -> ValidationResult:

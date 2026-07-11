@@ -26,7 +26,7 @@ def test_save_and_load_roundtrip():
             FixRecord(
                 issue_id="RULE_001",
                 file=".github/workflows/ci.yml",
-                fix_applied="bump actions/checkout@v2 -> v4",
+                detection_note="bump actions/checkout@v2 -> v4",
                 detected_at="2026-01-01T00:00:00+00:00",
                 run_count=2,
             )
@@ -76,7 +76,7 @@ def test_record_fix_appends():
     fix = FixRecord(
         issue_id="RULE_001",
         file="f.yml",
-        fix_applied="bump v2->v4",
+        detection_note="bump v2->v4",
         detected_at="2026-01-01T00:00:00+00:00",
         run_count=1,
     )
@@ -131,13 +131,13 @@ def test_record_detection_existing_appends_again():
 def test_get_recurring_issues_returns_above_threshold():
     ctx = MemoryContext(repo="test/repo")
     ctx.fixes = [
-        FixRecord(issue_id="R1", file="a.yml", fix_applied="",
+        FixRecord(issue_id="R1", file="a.yml", detection_note="",
                   detected_at="", run_count=1),
-        FixRecord(issue_id="R1", file="a.yml", fix_applied="",
+        FixRecord(issue_id="R1", file="a.yml", detection_note="",
                   detected_at="", run_count=1),
-        FixRecord(issue_id="R1", file="a.yml", fix_applied="",
+        FixRecord(issue_id="R1", file="a.yml", detection_note="",
                   detected_at="", run_count=1),
-        FixRecord(issue_id="R2", file="b.yml", fix_applied="",
+        FixRecord(issue_id="R2", file="b.yml", detection_note="",
                   detected_at="", run_count=1),
     ]
     recurring = get_recurring_issues(ctx, threshold=3)
@@ -148,9 +148,9 @@ def test_get_recurring_issues_returns_above_threshold():
 def test_get_recurring_issues_ignores_below_threshold():
     ctx = MemoryContext(repo="test/repo")
     ctx.fixes = [
-        FixRecord(issue_id="R1", file="a.yml", fix_applied="",
+        FixRecord(issue_id="R1", file="a.yml", detection_note="",
                   detected_at="", run_count=1),
-        FixRecord(issue_id="R1", file="a.yml", fix_applied="",
+        FixRecord(issue_id="R1", file="a.yml", detection_note="",
                   detected_at="", run_count=1),
     ]
     recurring = get_recurring_issues(ctx, threshold=3)
@@ -160,7 +160,7 @@ def test_get_recurring_issues_ignores_below_threshold():
 def test_was_issue_recently_fixed_returns_true():
     ctx = MemoryContext(repo="test/repo")
     ctx.fixes = [
-        FixRecord(issue_id="R1", file="a.yml", fix_applied="",
+        FixRecord(issue_id="R1", file="a.yml", detection_note="",
                   detected_at="", run_count=1),
     ]
     assert was_issue_recently_fixed(ctx, "R1", "a.yml") is True
@@ -169,7 +169,7 @@ def test_was_issue_recently_fixed_returns_true():
 def test_was_issue_recently_fixed_returns_false_for_old_fix():
     ctx = MemoryContext(repo="test/repo")
     ctx.fixes = [
-        FixRecord(issue_id="R1", file="a.yml", fix_applied="",
+        FixRecord(issue_id="R1", file="a.yml", detection_note="",
                   detected_at="", run_count=1),
     ]
     # outside the default window of 5

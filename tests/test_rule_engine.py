@@ -101,7 +101,41 @@ jobs:
       - run: echo "deploying"
 """
     issues = check_broken_needs_dependencies("clean.yml", content)
-    assert len(issues) == 0  
+    assert len(issues) == 0
+
+
+def test_multi_job_mixed_valid_and_broken_needs():
+    content = """
+name: CI
+on: [push]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "building"
+
+  test:
+    runs-on: ubuntu-latest
+    needs: [build]
+    steps:
+      - run: echo "testing"
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: [nonexistent]
+    steps:
+      - run: echo "deploying"
+
+  cleanup:
+    runs-on: ubuntu-latest
+    needs: [nonexistent2]
+    steps:
+      - run: echo "cleanup"
+"""
+    issues = check_broken_needs_dependencies("multi_job.yml", content)
+    assert len(issues) == 2
+    broken_names = {(i.message.split("depends on '")[1].split("'")[0]) for i in issues}
+    assert broken_names == {"nonexistent", "nonexistent2"}
 
 def test_run_all_checks_combines_results():
     content = load_fixture("deprecated_action.yml")

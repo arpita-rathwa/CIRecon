@@ -1,5 +1,4 @@
 import json
-import os
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -11,7 +10,7 @@ from cirecon.rule_engine import Issue
 class FixRecord:
     issue_id: str
     file: str
-    fix_applied: str
+    detection_note: str
     detected_at: str  # ISO timestamp
     run_count: int    # how many times this issue has been seen
 
@@ -25,11 +24,8 @@ class MemoryContext:
     known_secrets: list[str] = field(default_factory=list)
 
 
-MEMORY_FILE = Path(os.getenv("GITHUB_WORKSPACE", ".")) / ".cirecon-memory" / "memory.json"
-
-
 def _memory_file_path(path: str) -> Path:
-    return MEMORY_FILE
+    return Path(path) / ".cirecon-memory" / "memory.json"
 
 
 def _fix_record_to_dict(r: FixRecord) -> dict:
@@ -78,7 +74,7 @@ def record_detection(memory: MemoryContext, issue: Issue) -> MemoryContext:
     memory.fixes.append(FixRecord(
         issue_id=issue.id,
         file=issue.location.file,
-        fix_applied=issue.suggested_fix or "detected",
+        detection_note=issue.suggested_fix or "detected",
         detected_at=datetime.now(timezone.utc).isoformat(),
         run_count=1,
     ))

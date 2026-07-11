@@ -1,6 +1,8 @@
 import json
 import os
 import sys
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as pkg_version
 
 from cirecon.dashboard import generate_dashboard_markdown, publish_to_gist
 from cirecon.fix_applier import apply_fix
@@ -16,8 +18,13 @@ from cirecon.org_scanner import scan_repos
 from cirecon.rule_engine import Issue, Severity, run_all_checks
 from cirecon.validator import validate_all
 
-MEMORY_DIR = os.path.join(os.getenv("GITHUB_WORKSPACE", "."), ".cirecon-memory")
-MEMORY_PATH = os.path.join(MEMORY_DIR, "memory.json")
+try:
+    VERSION = pkg_version("cirecon")
+except PackageNotFoundError:
+    VERSION = "2.0.0"
+
+WORKSPACE = os.getenv("GITHUB_WORKSPACE", ".")
+MEMORY_DIR = os.path.join(WORKSPACE, ".cirecon-memory")
 
 
 def _issue_to_dict(issue: Issue) -> dict:
@@ -110,7 +117,7 @@ def to_sarif(issues: list, repo: str = "") -> dict:
             "tool": {
                 "driver": {
                     "name": "CIRecon",
-                    "version": "1.0.0",
+                    "version": VERSION,
                     "informationUri": "https://github.com/arpita-rathwa/CIRecon",
                     "rules": rules,
                 },
@@ -124,7 +131,7 @@ def run() -> None:
     os.makedirs(MEMORY_DIR, exist_ok=True)
     print(f"Memory directory created: {MEMORY_DIR}")
 
-    memory = load_memory(MEMORY_PATH)
+    memory = load_memory(WORKSPACE)
     print(f"Memory loaded: {memory.total_runs} previous runs")
 
     fail_on_unresolved = os.getenv("FAIL_ON_UNRESOLVED", "false").lower() == "true"
@@ -137,7 +144,7 @@ def run() -> None:
     if not files:
         print("No workflow files found.")
         memory.total_runs += 1
-        save_memory(memory, MEMORY_PATH)
+        save_memory(memory, WORKSPACE)
         print(f"Memory saved: {memory.total_runs} total runs, {len(memory.fixes)} issues tracked")
         sys.exit(0)
 
@@ -189,7 +196,7 @@ def run() -> None:
     if not all_issues:
         print("No issues found — all workflows are clean.")
         write_job_summary(files, [], [], [])
-        save_memory(memory, MEMORY_PATH)
+        save_memory(memory, WORKSPACE)
         print(f"Memory saved: {memory.total_runs} total runs, {len(memory.fixes)} issues tracked")
         sys.exit(0)
 
@@ -231,7 +238,7 @@ def run() -> None:
     for issue in all_issues:
         memory = record_detection(memory, issue)
 
-    save_memory(memory, MEMORY_PATH)
+    save_memory(memory, WORKSPACE)
     print(f"Memory saved: {memory.total_runs} total runs, {len(memory.fixes)} issues tracked")
 
     if unresolved_dicts and fail_on_unresolved:
