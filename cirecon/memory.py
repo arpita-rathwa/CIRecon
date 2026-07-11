@@ -10,7 +10,7 @@ from cirecon.rule_engine import Issue
 class FixRecord:
     issue_id: str
     file: str
-    detection_note: str
+    fix_applied: str
     detected_at: str  # ISO timestamp
     run_count: int    # how many times this issue has been seen
 
@@ -33,8 +33,6 @@ def _fix_record_to_dict(r: FixRecord) -> dict:
 
 
 def _fix_record_from_dict(d: dict) -> FixRecord:
-    if "fix_applied" in d and "detection_note" not in d:
-        d["detection_note"] = d.pop("fix_applied")
     return FixRecord(**d)
 
 
@@ -76,7 +74,7 @@ def record_detection(memory: MemoryContext, issue: Issue) -> MemoryContext:
     memory.fixes.append(FixRecord(
         issue_id=issue.id,
         file=issue.location.file,
-        detection_note=issue.suggested_fix or "detected",
+        fix_applied=issue.suggested_fix or "detected",
         detected_at=datetime.now(timezone.utc).isoformat(),
         run_count=1,
     ))
