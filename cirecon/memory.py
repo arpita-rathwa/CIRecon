@@ -33,6 +33,8 @@ def _fix_record_to_dict(r: FixRecord) -> dict:
 
 
 def _fix_record_from_dict(d: dict) -> FixRecord:
+    if "fix_applied" in d and "detection_note" not in d:
+        d["detection_note"] = d.pop("fix_applied")
     return FixRecord(**d)
 
 
