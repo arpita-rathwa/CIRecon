@@ -29,6 +29,9 @@ dev = [
 
 [project.scripts]
 cirecon = "cirecon.main:run"
+cirecon-lint = "cirecon._scripts:lint"
+cirecon-typecheck = "cirecon._scripts:typecheck"
+cirecon-check = "cirecon._scripts:check"
 
 [tool.ruff]
 line-length = 100

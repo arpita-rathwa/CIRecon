@@ -105,7 +105,7 @@ TOOL_DEFINITIONS = [
     },
     {
         "name": "apply_fix",
-        "description": "Apply a proposed YAML patch to a workflow file.",
+        "description": "Apply a proposed YAML patch to a workflow file. Set dry_run=true to validate without writing.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -113,6 +113,11 @@ TOOL_DEFINITIONS = [
                 "patch": {
                     "type": "string",
                     "description": "The fixed YAML content to apply",
+                },
+                "dry_run": {
+                    "type": "boolean",
+                    "description": "If true, validate the patch without writing to disk",
+                    "default": False,
                 },
             },
             "required": ["path", "patch"],
@@ -216,7 +221,8 @@ def dispatch_tool(tool_name: str, tool_input: dict, context: dict) -> dict:
                 context["api_key"],
             )
         elif tool_name == "apply_fix":
-            result = apply_fix_tool(tool_input["path"], tool_input["patch"])
+            dry_run = tool_input.get("dry_run", False)
+            result = apply_fix_tool(tool_input["path"], tool_input["patch"], dry_run=dry_run)
         else:
             return {"success": False, "error": f"Unknown tool: {tool_name}"}
 

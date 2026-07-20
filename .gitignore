@@ -3,5 +3,12 @@ __pycache__/
 .venv/
 .venv-1/
 .pytest_cache/
+.ruff_cache/
 .env
+.env.*
+.coverage
+coverage.xml
 f.yml
+*.egg-info/
+dist/
+build/

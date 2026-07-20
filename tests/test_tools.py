@@ -124,15 +124,41 @@ def test_propose_fix_api_error(mock_post):
 
 
 def test_apply_fix_tool_success():
-    patch = "name: CI\non: [push]\npermissions:\n  contents: read\n"
-    result = apply_fix_tool("test.yml", patch)
-    assert result.success is True
-    assert result.data["patched"] == patch
-    assert result.data["path"] == "test.yml"
+    with tempfile.TemporaryDirectory() as tmp:
+        f = Path(tmp) / "test.yml"
+        f.write_text("name: CI\non: [push]\n", encoding="utf-8")
+        patch = "name: CI\non: [push]\npermissions:\n  contents: read\n"
+        result = apply_fix_tool(str(f), patch)
+        assert result.success is True
+        assert result.data["patched"] == patch
+        assert result.data["path"] == str(f)
+        assert result.data["dry_run"] is False
+        assert f.read_text(encoding="utf-8") == patch
+
+
+def test_apply_fix_tool_dry_run():
+    with tempfile.TemporaryDirectory() as tmp:
+        f = Path(tmp) / "test.yml"
+        original = "name: CI\non: [push]\n"
+        f.write_text(original, encoding="utf-8")
+        patch = "name: CI\non: [push]\npermissions:\n  contents: read\n"
+        result = apply_fix_tool(str(f), patch, dry_run=True)
+        assert result.success is True
+        assert result.data["dry_run"] is True
+        assert f.read_text(encoding="utf-8") == original
 
 
 def test_apply_fix_tool_file_not_found():
     result = apply_fix_tool("nonexistent.yml", "patch")
-    assert result.success is True
-    assert result.data["patched"] == "patch"
+    assert result.success is False
+    assert result.error is not None
+
+
+def test_apply_fix_tool_invalid_yaml():
+    with tempfile.TemporaryDirectory() as tmp:
+        f = Path(tmp) / "test.yml"
+        f.write_text("name: CI\n", encoding="utf-8")
+        result = apply_fix_tool(str(f), "invalid: yaml: [[[[")
+        assert result.success is False
+        assert "YAML" in result.error
 

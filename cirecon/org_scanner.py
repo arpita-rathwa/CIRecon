@@ -49,9 +49,13 @@ def scan_repos(repo_list: list[str], github_token: str) -> list[RepoReport]:
 
         tmpdir = tempfile.mkdtemp()
         try:
-            remote_url = f"https://x-access-token:{github_token}@github.com/{repo}.git"
+            remote_url = f"https://github.com/{repo}.git"
             subprocess.run(
-                ["git", "clone", "--depth", "1", remote_url, tmpdir],
+                [
+                    "git", "-c",
+                    f"http.extraHeader=Authorization: Bearer {github_token}",
+                    "clone", "--depth", "1", remote_url, tmpdir,
+                ],
                 check=True, capture_output=True, timeout=120,
             )
 

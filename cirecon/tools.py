@@ -120,11 +120,40 @@ def propose_fix(issue_dict: dict, file_section: str, api_key: str) -> ToolResult
         return ToolResult(success=False, data={}, error=f"Parse error: {e}")
 
 
-def apply_fix_tool(path: str, patch: str) -> ToolResult:
+def apply_fix_tool(path: str, patch: str, dry_run: bool = False) -> ToolResult:
     try:
+        if dry_run:
+            return ToolResult(
+                success=True,
+                data={"path": path, "patched": patch, "dry_run": True},
+            )
+
+        import yaml
+
+        try:
+            yaml.safe_load(patch)
+        except yaml.YAMLError as e:
+            return ToolResult(
+                success=False,
+                data={},
+                error=f"Patch is not valid YAML: {e}",
+            )
+
+        with open(path, "r", encoding="utf-8") as f:
+            original = f.read()
+
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(patch)
+
         return ToolResult(
             success=True,
-            data={"path": path, "patched": patch},
+            data={
+                "path": path,
+                "patched": patch,
+                "dry_run": False,
+                "original_length": len(original),
+                "new_length": len(patch),
+            },
         )
     except Exception as e:
         return ToolResult(success=False, data={}, error=str(e))
