@@ -105,7 +105,10 @@ TOOL_DEFINITIONS = [
     },
     {
         "name": "apply_fix",
-        "description": "Apply a proposed YAML patch to a workflow file. Set dry_run=true to validate without writing.",
+        "description": (
+            "Apply a proposed YAML patch to a workflow file. "
+            "Set dry_run=true to validate without writing."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
