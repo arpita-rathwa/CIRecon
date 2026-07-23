@@ -1,30 +1,29 @@
+
 # CIRecon
 
-> A GitHub Code Scanning provider for CI/CD workflows — detects security misconfigurations and correctness issues in GitHub Actions, with findings that appear permanently in your Security tab.
+A GitHub Code Scanning provider for GitHub Actions workflow files. Detects security misconfigurations, correctness errors, and runtime behavioral gaps. Outputs SARIF for permanent integration with GitHub's Security tab.
 
 [![CI](https://github.com/arpita-rathwa/CIRecon/actions/workflows/ci.yml/badge.svg)](https://github.com/arpita-rathwa/CIRecon/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.11+-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![GitHub Marketplace](https://img.shields.io/badge/GitHub-Marketplace-orange)](https://github.com/marketplace/actions/cirecon)
-[![Coverage](https://img.shields.io/badge/coverage-82%25-brightgreen)](https://github.com/arpita-rathwa/CIRecon)
+[![Coverage](https://img.shields.io/badge/coverage-81%25-brightgreen)](https://github.com/arpita-rathwa/CIRecon)
 
 ---
 
-## What it does
+## Overview
 
-CIRecon scans your GitHub Actions workflow files on every push and pull request. It checks for security misconfigurations, correctness issues, and runtime behavioral gaps that only surface when your workflow behaves differently between events.
+CIRecon runs as a GitHub Action on every push and pull request targeting workflow files. It performs static analysis using a 10-rule engine across three categories — correctness, security, and runtime behavioral gaps — and produces three output artifacts:
 
-Findings appear in three places:
+- **SARIF file** uploaded to GitHub's Code Scanning API, appearing permanently in the Security tab with tracking, dismissals, and PR integration
+- **Inline annotations** on the exact file and line via GitHub workflow commands
+- **Job Summary** written to `$GITHUB_STEP_SUMMARY`
 
-- **Security → Code Scanning tab** — permanently, with history, dismissals, and PR integration — just like CodeQL
-- **Inline annotations** — red and yellow markers on the exact file and line in your Actions UI
-- **Job Summary** — a structured report on every Actions run page
-
-CIRecon also remembers what it has already told you. After flagging an issue, it stays quiet about it on subsequent runs — no repeated noise for things you already know about. Issues that keep recurring get escalated to higher severity automatically.
+CIRecon maintains per-repo memory via GitHub Actions cache, filtering previously reported issues from subsequent runs and escalating issues that recur across three or more runs.
 
 ---
 
-## Quickstart
+## Installation
 
 ```yaml
 name: CIRecon
@@ -56,92 +55,91 @@ jobs:
           category: cirecon
 ```
 
-`actions/cache` enables memory — CIRecon remembers what it has flagged across runs. `upload-sarif` sends findings to GitHub's Code Scanning tab. Both are optional — CIRecon still produces inline annotations and a Job Summary without them.
+`permissions: security-events: write` is required for SARIF upload. `if: always()` ensures findings are uploaded regardless of exit code. The `actions/cache` step enables cross-run memory persistence.
 
-> **Note:** SARIF upload requires `permissions: security-events: write` and works on public repos or repos with GitHub Advanced Security enabled.
-
-See [`examples/cirecon.yml`](examples/cirecon.yml) for the full configuration.
+See [`examples/cirecon.yml`](examples/cirecon.yml) for the full reference configuration.
 
 ---
 
-## What CIRecon checks
+## Rules
 
 ### Correctness
 
-| Rule | What it catches | Severity |
-|---|---|---|
-| `RULE_DEPRECATED_ACTION` | Actions pinned to outdated versions like `checkout@v2`. SHA-pinned actions are exempt. | MEDIUM |
-| `RULE_MISSING_PERMISSIONS_BLOCK` | No top-level `permissions:` block — `GITHUB_TOKEN` gets broad default access. | HIGH |
-| `RULE_BROKEN_NEEDS_DEPENDENCY` | A `needs:` entry referencing a job ID that does not exist — a silent pipeline ordering bug. | HIGH |
+| Rule ID | Description | Severity | Auto-fixable |
+|---|---|---|---|
+| `RULE_DEPRECATED_ACTION` | Action pinned to an outdated version tag. SHA-pinned actions are exempt. | MEDIUM | ✅ |
+| `RULE_MISSING_PERMISSIONS_BLOCK` | No top-level `permissions:` block — `GITHUB_TOKEN` receives overly broad default scopes. | HIGH | ✅ |
+| `RULE_BROKEN_NEEDS_DEPENDENCY` | `needs:` references a job ID not defined in the workflow. | HIGH | ❌ |
 
 ### Security
 
-| Rule | What it catches | Severity |
-|---|---|---|
-| `RULE_SECRET_IN_RUN_COMMAND` | `${{ secrets.* }}` inside a `run:` step — secret values appear in plain text in your logs. | CRITICAL |
-| `RULE_PULL_REQUEST_TARGET_UNSAFE` | `pull_request_target` combined with checkout of the PR ref — a known RCE vector that gives untrusted code write access to your repo. | CRITICAL |
-| `RULE_OVERLY_BROAD_PERMISSIONS` | `write-all` or three or more write-level permission scopes — increases blast radius if the workflow is compromised. | HIGH |
-| `RULE_UNPINNED_THIRD_PARTY_ACTION` | A third-party action not pinned to a full commit SHA — can be silently updated with malicious code. | HIGH |
+| Rule ID | Description | Severity | Auto-fixable |
+|---|---|---|---|
+| `RULE_SECRET_IN_RUN_COMMAND` | `${{ secrets.* }}` interpolated inside a `run:` step — value is exposed in plain text in run logs. | CRITICAL | ❌ |
+| `RULE_PULL_REQUEST_TARGET_UNSAFE` | `pull_request_target` trigger combined with checkout of the PR head ref — grants untrusted code write access to the repository. | CRITICAL | ❌ |
+| `RULE_OVERLY_BROAD_PERMISSIONS` | `write-all` or three or more write-level permission scopes defined at workflow or job level. | HIGH | ❌ |
+| `RULE_UNPINNED_THIRD_PARTY_ACTION` | Third-party action referenced by version tag rather than a full 40-character commit SHA. | HIGH | ❌ |
 
-### Runtime behavioral
+### Runtime Behavioral
 
-These are the issues that don't show up in syntax checkers. They only surface when your workflow behaves differently between events.
+These rules model the behavioral difference between `push` and `pull_request` event contexts — specifically token permission scope, secret availability, and `github.ref` value. They are not detectable by syntax-only analysis.
 
-| Rule | What it catches | Severity |
-|---|---|---|
-| `RULE_FORK_PR_SECRET_EXPOSURE` | A `pull_request` workflow that uses secrets — secrets are unavailable on fork PRs and silently become empty strings. | HIGH |
-| `RULE_WRITE_STEP_ON_FORK_TRIGGER` | A step requiring write permissions in a `pull_request` workflow — silently fails on fork PRs which use a read-only token. | HIGH |
-| `RULE_REF_CONDITION_MISMATCH` | `if: github.ref == 'refs/heads/...'` in a workflow triggered by both `push` and `pull_request` — always false on PRs, step silently skips. | MEDIUM |
+| Rule ID | Description | Severity | Auto-fixable |
+|---|---|---|---|
+| `RULE_FORK_PR_SECRET_EXPOSURE` | `pull_request` workflow references secrets — secrets are unavailable in fork PR contexts and resolve to empty strings without error. | HIGH | ❌ |
+| `RULE_WRITE_STEP_ON_FORK_TRIGGER` | Step requiring write permissions in a `pull_request` workflow — fork PRs receive a read-only token, causing silent failure. | HIGH | ❌ |
+| `RULE_REF_CONDITION_MISMATCH` | `if: github.ref == 'refs/heads/...'` in a workflow triggered by both `push` and `pull_request` — evaluates to false on all PR runs, causing the step to silently skip. | MEDIUM | ❌ |
 
 ---
 
 ## Output
 
-### GitHub Code Scanning (SARIF)
+### SARIF / Code Scanning
 
-CIRecon writes findings to `cirecon-results.sarif` in standard SARIF 2.1.0 format. When uploaded via `github/codeql-action/upload-sarif`, findings appear in **Security → Code Scanning** with:
+CIRecon serializes all findings to SARIF 2.1.0 format at `cirecon-results.sarif`. When uploaded via `github/codeql-action/upload-sarif`, findings are visible in **Security → Code Scanning** with:
 
-- Permanent history across runs
-- Developer-controlled dismissals with reasons
-- PR checks that block merge when new issues are introduced
-- Org-wide Security Overview integration
+- Persistent tracking across commits and branches
+- PR check integration showing new findings introduced per PR
+- Dismissal support with audit trail
+- Inclusion in GitHub's org-level Security Overview
 
-### Inline annotations
+SARIF upload is free for public repositories. Private repositories require GitHub Advanced Security.
 
-CRITICAL and HIGH issues appear as red error annotations on the exact file and line. MEDIUM and LOW appear as yellow warnings. Visible on the Actions run page, in PR diff views, and in the Files changed tab.
+### Inline Annotations
+
+Findings are printed to stdout as GitHub workflow commands:
+
+```
+::error file=.github/workflows/ci.yml,line=12,title=RULE_SECRET_IN_RUN_COMMAND::...
+::warning file=.github/workflows/ci.yml,line=8,title=RULE_DEPRECATED_ACTION::...
+```
+
+CRITICAL and HIGH map to `::error`. MEDIUM and LOW map to `::warning`. Annotations are visible on the Actions run page, in PR diff views, and in the Files changed tab. No additional permissions required.
 
 ### Job Summary
 
-Every run writes a structured markdown report to the Actions Summary tab showing all issues found, their severity, whether they are auto-fixable, and the suggested fix.
+A structured Markdown table is written to `$GITHUB_STEP_SUMMARY` on every run, listing all detected issues with file, rule ID, severity, auto-fixable status, and suggested fix. No additional permissions required.
 
 ---
 
 ## Memory
 
-CIRecon maintains per-repo memory stored in GitHub Actions cache. Each repo's memory is completely isolated.
+CIRecon persists state between runs at `.cirecon-memory/memory.json` using GitHub Actions cache.
 
-**What memory does:**
+**Behavior:**
 
-After flagging an issue, CIRecon remembers it. On the next run it skips issues it has already reported — so your Job Summary only shows new things. Issues that keep appearing across three or more runs are automatically escalated in severity.
+- Issues reported in the last 5 runs are filtered from the current run's output — eliminating repeated reporting of acknowledged but unfixed issues
+- Issues detected in 3 or more runs are escalated: MEDIUM → HIGH, HIGH → CRITICAL, with a `[RECURRING]` suffix appended to the message
 
-**How to enable it:**
+Memory is scoped per repository via the cache key `cirecon-memory-${{ github.repository }}`. Cache entries expire after 7 days of repository inactivity; CIRecon reinitialises gracefully on expiry.
 
-Add `actions/cache` before the CIRecon step:
-
-```yaml
-- uses: actions/cache@v4
-  with:
-    path: .cirecon-memory
-    key: cirecon-memory-${{ github.repository }}
-```
-
-Memory persists as long as your repo has activity within 7 days. If the cache expires, CIRecon starts fresh gracefully.
+Memory requires the `actions/cache` step shown in the installation section.
 
 ---
 
-## Org-wide dashboard
+## Dashboard Mode
 
-Scan all your repos on a schedule and publish a health dashboard to a GitHub Gist:
+Scans multiple repositories in a single run and publishes aggregated health scores to a GitHub Gist.
 
 ```yaml
 name: CIRecon Dashboard
@@ -164,9 +162,9 @@ jobs:
           gist-id: 'your-gist-id-here'
 ```
 
-Health scores start at 100 and deduct per issue (CRITICAL: −20, HIGH: −10, MEDIUM: −5). The Gist updates automatically on every run.
+Health scores are computed starting at 100, with deductions of 20 per CRITICAL, 10 per HIGH, and 5 per MEDIUM finding. The Gist is updated on every run.
 
-> Dashboard mode requires a PAT with `repo` and `gist` scopes stored as `CIRECON_PAT`.
+Requires a classic PAT with `repo` and `gist` scopes, stored as `CIRECON_PAT`.
 
 ---
 
@@ -174,41 +172,61 @@ Health scores start at 100 and deduct per issue (CRITICAL: −20, HIGH: −10, M
 
 | Input | Description | Default |
 |---|---|---|
-| `mode` | `scan` (default) or `dashboard` | `scan` |
-| `repos` | Comma-separated repos for dashboard mode | _(required in dashboard mode)_ |
-| `gist-id` | Existing Gist ID to update in dashboard mode | _(optional)_ |
-| `fail-on-unresolved` | Exit code 1 if issues are found | `false` |
+| `mode` | Execution mode: `scan` or `dashboard` | `scan` |
+| `repos` | Comma-separated `owner/repo` list for dashboard mode | _(required in dashboard mode)_ |
+| `gist-id` | Gist ID to update in dashboard mode — creates new if omitted | _(optional)_ |
+| `fail-on-unresolved` | Exit with code 1 when findings are detected | `false` |
+| `github-token` | GitHub token for dashboard mode repo cloning | _(optional)_ |
 
 ---
 
-## How it compares
+## Local Development
 
-| Feature | actionlint | CIRecon |
+```bash
+git clone https://github.com/arpita-rathwa/CIRecon
+cd CIRecon
+pip install -e ".[dev]"
+
+# scan current directory
+cirecon
+
+# run test suite
+pytest tests/ -v --cov=cirecon --cov-fail-under=80
+
+# lint
+ruff check cirecon/
+```
+
+---
+
+## Comparison
+
+| Capability | actionlint | CIRecon |
 |---|---|---|
-| Syntax and schema validation | ✅ | ✅ |
+| YAML syntax and schema validation | ✅ | ✅ |
 | Security misconfiguration detection | ❌ | ✅ |
 | Runtime behavioral gap detection | ❌ | ✅ |
-| GitHub Code Scanning integration (SARIF) | ❌ | ✅ |
-| Inline annotations in GitHub UI | ❌ | ✅ |
-| Job Summary report | ❌ | ✅ |
-| Per-repo memory — no repeated noise | ❌ | ✅ |
+| SARIF output / GitHub Code Scanning | ❌ | ✅ |
+| Inline annotations with line precision | ❌ | ✅ |
+| Job Summary | ❌ | ✅ |
+| Adaptive per-repo memory | ❌ | ✅ |
 | Org-wide health dashboard | ❌ | ✅ |
-| Free to use | ✅ | ✅ |
+| Local CLI | ❌ | ✅ |
 
 ---
-
-## Architecture
-
-See [ARCHITECTURE.md](ARCHITECTURE.md) for a deep dive into the system design — memory layer, SARIF output, dashboard mode, rule engine design, and Mermaid diagrams of the data flow.
 
 ## Contributing
 
-Adding a new rule takes about 15 minutes. See [CONTRIBUTING.md](CONTRIBUTING.md) for a step-by-step guide.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for instructions on adding rules, running tests, and submitting pull requests.
 
-Found a bug? Open an issue using the [bug report template](.github/ISSUE_TEMPLATE/bug_report.md).
+Bug reports: [.github/ISSUE_TEMPLATE/bug_report.md](.github/ISSUE_TEMPLATE/bug_report.md)
 
 ---
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+
+
+
+
+
